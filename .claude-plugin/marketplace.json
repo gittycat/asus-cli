@@ -1,7 +1,7 @@
 {
   "name": "asus-skill",
   "owner": {
-    "name": "",
+    "name": "gittycat",
     "url": "https://github.com/gittycat"
   },
   "description": "Control an ASUS router from Claude Code.",
