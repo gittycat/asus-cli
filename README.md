@@ -47,11 +47,14 @@ git clone --depth 1 https://github.com/gittycat/asus-skill /tmp/ars \
 **4. Ask your agent**
 
 ```
-what devices are connected to my router?
+what devices are connected to my asus router?
+is my asus router's firewall on?
+open port 32400 on the asus for my media server
 ```
 
-No slash command needed — the skill loads by itself when the question is about
-the router.
+  
+**IMPORTANT** You need to mention **asus** in your request. The word "router" is way too generic in a coding context, which would likely result in the skill being needlessly loaded whenever a request for a react router or any similar unrelated name would be used. Two hardware-only phrasings also work without it — *who's on my
+WiFi?* and *what devices are on my home network?*
 
 <details>
 <summary>Other ways to install, and where the config is read from</summary>

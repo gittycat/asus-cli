@@ -1,6 +1,6 @@
 ---
 name: asus-skill
-description: Inspect and control an ASUS router (AsusWRT) over its HTTP API - list connected clients, check WAN/CPU/RAM, read firewall state, and manage port forwarding, guest WiFi and parental control. Use when the user asks about their router, home network, WiFi, connected devices, port forwarding, opening a port, firewall settings, or guest network.
+description: Inspect and control an ASUS (AsusWRT) home router over its HTTP API - connected devices, WAN and internet status, CPU and RAM, firewall state, port forwarding, guest WiFi and parental control. The request must name the router explicitly: use this skill only when it says "asus", or asks who is connected to my WiFi / what devices are on my home network. Do NOT load on the word "router" by itself - in a codebase that almost always means Express, React Router, vue-router, or API and message routing.
 ---
 
 # ASUS router control
