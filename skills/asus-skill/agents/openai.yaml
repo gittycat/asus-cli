@@ -1,0 +1,18 @@
+# Codex / ChatGPT presentation metadata.
+#
+# Optional under the Agent Skills standard: SKILL.md alone is enough for every
+# compatible host. This file only adds display details and invocation policy
+# for OpenAI hosts, and is ignored elsewhere.
+
+interface:
+  display_name: ASUS Router Control
+  short_description: >-
+    Inspect and control an ASUS router over its HTTP API — connected devices,
+    WAN status, firewall state, port forwarding and guest WiFi.
+  brand_color: "#1B7FD4"
+  default_prompt: What is the current state of my router?
+
+policy:
+  # The skill should trigger on its own when someone asks about their router,
+  # WiFi or port forwarding, which is what the SKILL.md description matches on.
+  allow_implicit_invocation: true

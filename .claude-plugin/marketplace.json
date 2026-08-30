@@ -1,0 +1,17 @@
+{
+  "name": "asus-skill",
+  "owner": {
+    "name": "",
+    "url": "https://github.com/gittycat"
+  },
+  "description": "Control an ASUS router from Claude Code.",
+  "plugins": [
+    {
+      "name": "asus-skill",
+      "source": "./",
+      "description": "Inspect and control an ASUS (AsusWRT) router — clients, WAN, firewall state, port forwarding, guest WiFi.",
+      "category": "infrastructure",
+      "keywords": ["asus", "asuswrt", "router", "network", "port-forwarding"]
+    }
+  ]
+}

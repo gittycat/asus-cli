@@ -1,0 +1,13 @@
+{
+  "name": "asus-skill",
+  "displayName": "ASUS Router Control",
+  "version": "0.2.0",
+  "description": "Inspect and control an ASUS (AsusWRT) router from Claude Code — clients, WAN, firewall state, port forwarding, guest WiFi.",
+  "author": {
+    "name": "Main Admin",
+    "email": "accounts@kiluna.com"
+  },
+  "repository": "https://github.com/gittycat/asus-skill",
+  "license": "MIT",
+  "keywords": ["asus", "asuswrt", "router", "network", "port-forwarding", "home-network"]
+}
