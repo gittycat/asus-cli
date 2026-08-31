@@ -1,6 +1,6 @@
 ---
 name: asus-skill
-description: Inspect and control an ASUS (AsusWRT) home router over its HTTP API - connected devices, WAN and internet status, CPU and RAM, firewall state, port forwarding, guest WiFi and parental control. The request must name the router explicitly: use this skill only when it says "asus", or asks who is connected to my WiFi / what devices are on my home network. Do NOT load on the word "router" by itself - in a codebase that almost always means Express, React Router, vue-router, or API and message routing.
+description: Inspect and control an ASUS (AsusWRT) home router over its HTTP API - connected devices, WAN and internet status, CPU and RAM, firewall state, port forwarding, guest WiFi, parental control and WiFi security (WPS, WPA2/WPA3, country code). The request must name the router explicitly: use this skill only when it says "asus", or asks who is connected to my WiFi / what devices are on my home network. Do NOT load on the word "router" by itself - in a codebase that almost always means Express, React Router, vue-router, or API and message routing.
 ---
 
 # ASUS router control
@@ -34,6 +34,8 @@ it searched. Relay them and stop — never ask the user for the password in chat
 | Firewall + filters + parental control | `asus firewall` |
 | Port forwarding rules | `asus pf list` |
 | Guest networks | `asus guest list` |
+| Wireless security (WPA mode, MFP, WPS, country) | `asus wifi show` |
+| Firmware version and available update | `asus firmware info` |
 | Any raw setting | `asus nvram <var> [<var> ...]` |
 
 Add `--json` to any read command when you need to parse the output rather
@@ -43,34 +45,53 @@ already formatted for reading.
 `asus status` takes ~2 seconds: CPU usage is a delta between two samples, so
 the command deliberately samples twice.
 
+`asus firmware info` takes ~7 seconds because it makes the router query ASUS
+rather than trust its stored value. At a terminal it shows a spinner on
+stderr; when the output is piped or captured it prints nothing extra, so what
+you receive is unaffected. `--cached` skips the wait and the check.
+
 ## Changing state
 
-**Every mutating command requires `--confirm`.** Without it the command prints
-what it would do and exits 3, touching nothing. Use that as a dry run.
+**No mutating command acts on its own.** Each one either asks first or
+refuses:
+
+| Situation | What happens |
+|---|---|
+| `--yes` (or `-y`) passed | Acts immediately, no question |
+| A person at a terminal | Prints what it would do, prompts `[y/N]` |
+| **No terminal, no `--yes`** | Prints what it would do, **exits 3**, touches nothing |
+
+You are the third row. A bare mutating command is therefore a safe dry run,
+and exit 3 means "refused for want of consent" — distinct from exit 1, which
+means it tried and failed.
 
 ```bash
 asus pf add --name Plex --port 32400 --to-ip 192.168.50.20   # dry run, exits 3
-asus pf add --name Plex --port 32400 --to-ip 192.168.50.20 --confirm
+asus pf add --name Plex --port 32400 --to-ip 192.168.50.20 --yes
 ```
 
 Available mutations:
 
 ```bash
-asus pf add --name NAME --port EXT --to-ip IP [--to-port INT] [--proto TCP|UDP|BOTH] --confirm
-asus pf remove --name NAME --confirm          # or --port EXT
-asus pf enable --confirm                      # global port forwarding switch
-asus pf disable --confirm
-asus guest enable --band 2ghz --id 1 --confirm
-asus guest disable --band 5ghz --id 1 --confirm
-asus parental enable --confirm
-asus parental disable --confirm
-asus reboot --confirm
+asus pf add --name NAME --port EXT --to-ip IP [--to-port INT] [--proto TCP|UDP|BOTH] --yes
+asus pf remove --name NAME --yes          # or --port EXT
+asus pf enable --yes                      # global port forwarding switch
+asus pf disable --yes
+asus guest enable --band 2ghz --id 1 --yes
+asus guest disable --band 5ghz --id 1 --yes
+asus parental enable --yes
+asus parental disable --yes
+asus wifi wps disable --yes               # or enable
+asus wifi security --band both|2ghz|5ghz --mode wpa2|wpa2wpa3|wpa3 [--mfp capable] --yes
+asus wifi country --band 5ghz --code AU --yes
+asus firmware upgrade --yes [--to VERSION]    # downloads, flashes, reboots
+asus reboot --yes
 ```
 
 ### Rules you must follow
 
 1. **Run the dry run first, show the user its output, then ask before adding
-   `--confirm`.** Do not chain them in one step.
+   `--yes`.** Do not chain them in one step.
 2. **Never run `asus reboot`** unless the user asked for a reboot in those
    words. It drops every connection in the house for about a minute.
 3. **Port forwarding exposes a device to the internet.** Before adding a rule,
@@ -78,8 +99,45 @@ asus reboot --confirm
    445 or a database port, say so plainly and confirm the user intends it.
 4. **Check `asus pf list` first.** The global switch can be OFF, in which case
    rules exist but do nothing — `asus pf add` warns about this, but say it too.
-5. **`asus nvram` is read-only on purpose.** There is no write equivalent. If a
-   setting can only be changed by writing nvram, say it needs the web UI.
+5. **`asus nvram` is read-only on purpose.** Writes exist only as named
+   commands — `pf`, `guest`, `parental`, `wifi`. If a setting has no command,
+   say it needs the web UI rather than improvising a raw write.
+6. **Never run `asus firmware upgrade` unless the user asked to upgrade the
+   firmware in those words.** It writes flash and reboots; a power cut partway
+   bricks the router. Show `asus firmware info --notes` first so the user sees
+   the version and the release note, then the dry run, then ask. Because you
+   have no terminal, `--yes` also requires `--to` naming the exact offered
+   version — read it from `asus firmware info`, never guess it. When the
+   command returns, say the upgrade was *requested*: the API reports nothing
+   about the download or the flash, and only `asus info` after the reboot
+   shows whether it worked.
+7. **`asus wifi security` and `asus wifi country` restart both radios.** Every
+   wireless client drops and reconnects. Say so before applying. These write
+   nvram directly, so the command reads each value back afterwards and prints
+   `before -> after`; a country code write in particular is often refused by
+   stock firmware, and the read-back is what tells you whether it took.
+
+## Features to leave off
+
+Both of these come up in every security review of an ASUS router. The answers
+are settled — apply them, do not re-open the question with the user each time.
+
+**Never accept the Trend Micro EULA.** AiProtection, Traffic Analyzer, Apps
+Analyzer, Adaptive QoS, Game Boost and Web History are all gated behind it, and
+accepting it hands browsing data to Trend Micro. Treat it as a hard no: if a
+feature requires that EULA, the feature is unavailable. Do not recommend
+enabling it, and do not frame the privacy trade-off as an open decision. On a
+router where the EULA was never accepted, `bwdpi_db_enable=0` is the correct
+state, not a misconfiguration to flag.
+
+**Leave DoS protection off** (`fw_dos_x=0`). All it does is rate-limit new
+connections and ICMP to roughly one per second. The professional consensus on
+SNBForums is that this will not stop a real flood — the uplink saturates
+regardless — while it does break legitimate traffic, with users reporting they
+had to disable it for Cloudflare and for media servers. Off is the AsusWRT
+default and the right setting for a home router. Someone genuinely under
+attack needs their ISP, not this checkbox. Sources are in
+[reference/settings.md](reference/settings.md#features-with-a-settled-answer).
 
 ## When something is not covered
 

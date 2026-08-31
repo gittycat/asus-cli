@@ -1,6 +1,6 @@
 [project]
 name = "asus-skill"
-version = "0.1.0"
+version = "0.3.0"
 description = "Feasibility probe for controlling an ASUS RT-AX59U over its HTTP API"
 readme = "README.md"
 authors = [
@@ -19,3 +19,14 @@ probe = "asus_skill.probe:main"
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# helpers.py is imported by name from the test modules.
+pythonpath = ["tests"]
+addopts = "-q --strict-markers"

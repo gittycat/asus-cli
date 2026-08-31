@@ -155,3 +155,32 @@ def jsonable(value: Any) -> Any:
 def enum_name(value: Any) -> str:
     """Render an IntEnum as its name rather than a bare number."""
     return value.name if isinstance(value, Enum) else str(value)
+
+
+async def apply_nvram(
+    router: AsusRouter,
+    values: dict[str, str],
+    service: str,
+) -> dict[str, Any]:
+    """Write nvram variables, restart a service, and report what actually stuck.
+
+    This is the same write path the library uses for port forwarding
+    (async_apply_port_forwarding_rules -> async_run_service): the arguments
+    dict becomes nvram assignments, `apply` adds action_mode=apply, and the
+    named service is restarted afterwards.
+
+    Some variables are read-only on stock firmware even though the write is
+    accepted — country code is the known case — so the values are read back
+    and returned as before/after rather than trusting the success flag.
+    """
+    names = list(values)
+    before = await read_nvram(router, names)
+    ok = await router.async_run_service(service=service, arguments=dict(values), apply=True)
+    after = await read_nvram(router, names)
+
+    return {
+        "ok": ok,
+        "before": before,
+        "after": after,
+        "unchanged": [n for n in names if str(after.get(n)) != str(values[n])],
+    }

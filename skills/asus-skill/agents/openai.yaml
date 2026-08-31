@@ -8,7 +8,8 @@ interface:
   display_name: ASUS Router Control
   short_description: >-
     Inspect and control an ASUS router over its HTTP API — connected devices,
-    WAN status, firewall state, port forwarding and guest WiFi.
+    WAN status, firewall state, port forwarding, guest WiFi and WiFi
+    security settings.
   brand_color: "#1B7FD4"
   default_prompt: What is the current state of my router?
 

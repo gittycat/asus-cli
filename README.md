@@ -108,6 +108,8 @@ that your account is the router **admin**, not a limited family member.
 | **Firewall** | firewall switch, DoS protection, WAN admin access, URL and keyword filters, parental control |
 | **Port forwarding** | list, add, remove, enable/disable globally |
 | **Guest WiFi** | list all six guest networks, enable/disable any of them |
+| **Firmware** | current vs latest version (checked online), release note, upgrade |
+| **WiFi security** | WPS on/off, WPA2/WPA3 mode, 802.11w frame protection, country code |
 | **Anything else** | read any raw router setting by name |
 
 It talks to the router's HTTP API — the same one the ASUS Router mobile app
@@ -128,6 +130,8 @@ asus wan                     # ip, gateway, dns, protocol
 asus firewall                # firewall + filters + parental control
 asus pf list                 # port forwarding rules
 asus guest list              # guest networks
+asus wifi show               # wps, wpa mode, frame protection, country
+asus firmware info --notes   # current vs latest version, release note
 asus nvram vts_rulelist      # any raw setting
 ```
 
@@ -139,9 +143,36 @@ Changing things takes two steps by design:
 asus pf add --name Plex --port 32400 --to-ip 192.168.50.20
 # → prints what it would do, changes nothing, exits 3
 
-asus pf add --name Plex --port 32400 --to-ip 192.168.50.20 --confirm
+asus pf add --name Plex --port 32400 --to-ip 192.168.50.20 --yes
 # → applies it
 ```
+
+---
+
+## Tests
+
+```bash
+uv sync --group dev
+uv run pytest
+```
+
+The suite drives the CLI end to end — argv through argparse through the
+command function to captured stdout — against a fake router built from values
+observed on a real RT-AX59U. Only the `AsusRouter` object is replaced;
+`read_nvram`, `apply_nvram`, the formatting helpers and the parser all run for
+real. **No test contacts a router**, so the suite is safe to run anywhere.
+
+What it covers:
+
+| File | Covers |
+|---|---|
+| `test_parser.py` | Subcommand wiring, required arguments, refused invocations |
+| `test_read_commands.py` | Output of every read command, plain and `--json` |
+| `test_dry_run.py` | Every mutation refuses without `--yes` and writes nothing |
+| `test_mutations.py` | The exact nvram payload and service each mutation sends |
+| `test_router.py` | Config loading, nvram read/write, serialisation helpers |
+| `test_firmware.py` | Version reporting, the online check, and the flash guards |
+| `test_confirmation.py` | The consent matrix: `--yes`, terminal prompt, exit 3 |
 
 ---
 
@@ -150,11 +181,17 @@ asus pf add --name Plex --port 32400 --to-ip 192.168.50.20 --confirm
 The design assumes an AI agent will be driving this, so the guardrails are in
 the tool rather than in the instructions.
 
-- **Nothing changes without `--confirm`.** The refusal happens *before* the
-  router is even contacted, so a dry run cannot have side effects.
+- **Nothing changes without consent.** `--yes` acts; at a terminal you get a
+  `[y/N]` prompt; with neither, the command prints what it would do and exits
+  3 without touching anything. Silence never means yes, so a bare mutating
+  command is a safe dry run.
 - **No raw writes.** `asus nvram` reads any setting; there is deliberately no
   write counterpart. Blind nvram writes are how working configurations get
   destroyed. Only reviewed, named operations can write.
+- **Writes are verified, not assumed.** The router reporting that it ran the
+  service does not mean the value stuck — a country code write is routinely
+  accepted and then ignored. Every `asus wifi` command reads the variables back
+  and prints `before -> after`, exiting non-zero if anything did not change.
 - **Duplicate port detection.** Adding a rule for an external port that is
   already forwarded fails unless you pass `--force`.
 - **Reboot is opt-in.** The skill instructs the agent never to reboot unless you
@@ -305,7 +342,11 @@ breaking change stays a one-file fix.
   but not written. The variable names for them are `unverified` — if
   `asus firewall` shows `? (None)`, that name is wrong for your firmware.
 - **Parental control is a global switch.** Per-device rules need the web UI.
-- **No wireless radio control.** Guest networks yes, main radios no.
+- **Limited wireless control.** WPS, WPA mode, frame protection and country
+  code are settable; SSID, password, channel and bandwidth are not.
+- **Country code may be locked.** Stock firmware often derives it from the
+  hardware SKU and silently ignores the write. The command tells you when
+  that happens; the fix is the web UI.
 - **AiMesh nodes are not addressed individually.** Everything applies to the
   main router.
 - **A firmware update can break this.** Nothing here is a supported API.

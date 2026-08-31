@@ -1,14 +1,16 @@
 """asus — command line control for an ASUS router over its HTTP API.
 
 Read commands print a human-readable summary, or JSON with --json.
-Every command that changes the router requires an explicit --confirm;
-without it the command prints what it would do and exits 3.
+Every command that changes the router asks first. --yes skips the asking;
+with no terminal to ask at, the command prints what it would do and exits 3.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
+import itertools
 import json
 import sys
 from typing import Any
@@ -21,6 +23,7 @@ from asusrouter.modules.wlan import AsusWLAN
 
 from asus_skill.router import (
     ConfigError,
+    apply_nvram,
     connect,
     enum_name,
     jsonable,
@@ -59,11 +62,68 @@ def emit(payload: Any, lines: list[str], as_json: bool) -> None:
         print("\n".join(lines))
 
 
+def _onoff(value: Any) -> str:
+    """Render an nvram boolean, keeping the raw value visible when it is not one."""
+    return {"1": "ON", "0": "OFF"}.get(str(value), f"? ({value!r})")
+
+
+SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+
+@contextlib.asynccontextmanager
+async def progress(message: str) -> Any:
+    """Spin on stderr while something slow runs.
+
+    Silent unless stderr is a terminal: piped and captured output stays byte
+    for byte what it would have been, and --json on stdout is unaffected
+    either way.
+    """
+    if not sys.stderr.isatty():
+        yield
+        return
+
+    async def spin() -> None:
+        for i in itertools.count():
+            frame = SPINNER_FRAMES[i % len(SPINNER_FRAMES)]
+            print(f"\r{frame} {message}", end="", file=sys.stderr, flush=True)
+            await asyncio.sleep(0.1)
+
+    task = asyncio.create_task(spin())
+    try:
+        yield
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        print("\r" + " " * (len(message) + 4) + "\r", end="", file=sys.stderr, flush=True)
+
+
 def needs_confirm(args: argparse.Namespace, description: str) -> bool:
-    """Refuse a mutation unless --confirm was passed. Returns True if refused."""
-    if args.confirm:
+    """Decide whether a mutation may proceed. Returns True if it was refused.
+
+    --yes acts immediately. Otherwise, at a terminal, ask the person sitting
+    there. With no terminal there is nobody to ask, so the command prints what
+    it would do and exits EXIT_NEEDS_CONFIRM — silence is never consent, which
+    is what makes the bare command safe to run as a dry run.
+    """
+    if args.yes:
         return False
-    print(f"Would {description}\nRe-run with --confirm to apply.", file=sys.stderr)
+
+    print(f"Would {description}", file=sys.stderr)
+
+    if not sys.stdin.isatty():
+        print("Re-run with --yes to apply.", file=sys.stderr)
+        return True
+
+    print("Proceed? [y/N] ", end="", file=sys.stderr, flush=True)
+    try:
+        answer = input().strip().lower()
+    except EOFError:
+        answer = ""
+    if answer in ("y", "yes"):
+        return False
+
+    print("Cancelled.", file=sys.stderr)
     return True
 
 
@@ -259,7 +319,7 @@ async def cmd_pf_add(args: argparse.Namespace) -> int:
 
         data = await router.async_get_data(AsusData.PORT_FORWARDING, force=True) or {}
         if data.get("state") == AsusPortForwarding.OFF:
-            print("Note: port forwarding is globally OFF. Run: asus pf enable --confirm")
+            print("Note: port forwarding is globally OFF. Run: asus pf enable --yes")
         return EXIT_OK if ok else EXIT_ERROR
 
 
@@ -315,8 +375,7 @@ async def cmd_firewall(args: argparse.Namespace) -> int:
         pc = await router.async_get_data(AsusData.PARENTAL_CONTROL) or {}
 
         def flag(name: str) -> str:
-            value = raw.get(name)
-            return {"1": "ON", "0": "OFF"}.get(str(value), f"? ({value!r})")
+            return _onoff(raw.get(name))
 
         lines = [
             f"Firewall          {flag('fw_enable_x')}",
@@ -388,6 +447,300 @@ async def cmd_guest_toggle(args: argparse.Namespace) -> int:
 
 
 # --------------------------------------------------------------------------
+# Wireless security
+# --------------------------------------------------------------------------
+
+# Band name -> nvram prefix index. wl0 is 2.4 GHz, wl1 is 5 GHz.
+BANDS = {"2ghz": 0, "5ghz": 1}
+
+# WPA mode -> (wl<i>_auth_mode_x value, default wl<i>_mfp).
+# "psk2" is verified on RT-AX59U; "psk2sae" and "sae" are the standard
+# AsusWRT values but are not verified there, which is why every write is
+# read back before it is reported as applied.
+WPA_MODES = {
+    "wpa2": ("psk2", "0"),
+    "wpa2wpa3": ("psk2sae", "1"),
+    "wpa3": ("sae", "2"),
+}
+
+# 802.11w management frame protection.
+MFP_VALUES = {"disabled": "0", "capable": "1", "required": "2"}
+MFP_NAMES = {v: k for k, v in MFP_VALUES.items()}
+
+WIFI_VARS = ["wps_enable", "wps_enable_x", "wps_multiband", "wps_band_x"] + [
+    f"wl{i}_{suffix}"
+    for i in (0, 1)
+    for suffix in ("radio", "auth_mode_x", "crypto", "mfp", "country_code")
+]
+
+
+def _bands(selection: str) -> list[int]:
+    return [0, 1] if selection == "both" else [BANDS[selection]]
+
+
+def _report_apply(result: dict[str, Any], description: str, as_json: bool) -> int:
+    """Print the before/after of an nvram write and pick an exit code.
+
+    async_run_service reports whether the router accepted the request, not
+    whether the value stuck, so the read-back is what decides success here.
+    """
+    lines = [f"{'Applied' if result['ok'] else 'FAILED'}: {description}"]
+    for name, after in result["after"].items():
+        before = result["before"].get(name)
+        if name in result["unchanged"]:
+            # The write was accepted and then ignored by the firmware.
+            suffix = "  (REFUSED)"
+        elif str(before) == str(after):
+            # Already correct before the write. A success, not a refusal.
+            suffix = "  (already set)"
+        else:
+            suffix = ""
+        lines.append(f"  {name:<22} {before!r} -> {after!r}{suffix}")
+
+    if result["unchanged"]:
+        lines.append(
+            "\nDid not take the requested value: "
+            + ", ".join(result["unchanged"])
+            + "\nThe firmware is refusing the write; use the web UI for these."
+        )
+    emit(result, lines, as_json)
+    return EXIT_OK if result["ok"] and not result["unchanged"] else EXIT_ERROR
+
+
+async def cmd_wifi_show(args: argparse.Namespace) -> int:
+    async with connect() as router:
+        raw = await read_nvram(router, WIFI_VARS)
+
+        lines = [
+            f"WPS               {_onoff(raw.get('wps_enable_x'))}"
+            f"  (wps_enable={raw.get('wps_enable')!r},"
+            f" multiband={raw.get('wps_multiband')!r})",
+            "",
+            f"{'BAND':<8} {'RADIO':<7} {'AUTH':<10} {'CRYPTO':<8} {'MFP':<10} COUNTRY",
+        ]
+        for band, i in BANDS.items():
+            mfp = str(raw.get(f"wl{i}_mfp"))
+            lines.append(
+                f"{band:<8} {_onoff(raw.get(f'wl{i}_radio')):<7} "
+                f"{str(raw.get(f'wl{i}_auth_mode_x')):<10} "
+                f"{str(raw.get(f'wl{i}_crypto')):<8} "
+                f"{MFP_NAMES.get(mfp, mfp):<10} {raw.get(f'wl{i}_country_code')}"
+            )
+        emit(raw, lines, args.json)
+    return EXIT_OK
+
+
+async def cmd_wifi_wps(args: argparse.Namespace) -> int:
+    value = "1" if args.action == "enable" else "0"
+    description = f"turn WPS {'ON' if args.action == 'enable' else 'OFF'} on all bands"
+    if args.action == "enable":
+        description += " (the WPS PIN exchange is brute-forceable)"
+    if needs_confirm(args, description):
+        return EXIT_NEEDS_CONFIRM
+
+    async with connect() as router:
+        # wps_enable_x is what the web UI writes and wps_enable is the runtime
+        # flag; both are present on RT-AX59U and both are set here so the UI
+        # and the radio agree afterwards.
+        result = await apply_nvram(
+            router,
+            {"wps_enable": value, "wps_enable_x": value, "wps_multiband": value},
+            "restart_wireless",
+        )
+        return _report_apply(result, description, args.json)
+
+
+async def cmd_wifi_security(args: argparse.Namespace) -> int:
+    auth, default_mfp = WPA_MODES[args.mode]
+    mfp = MFP_VALUES[args.mfp] if args.mfp else default_mfp
+
+    values: dict[str, str] = {}
+    for i in _bands(args.band):
+        values[f"wl{i}_auth_mode_x"] = auth
+        values[f"wl{i}_crypto"] = "aes"
+        values[f"wl{i}_mfp"] = mfp
+
+    description = (
+        f"set {args.band} to {args.mode} (auth_mode_x={auth}, crypto=aes, "
+        f"mfp={MFP_NAMES[mfp]}) — every wireless client reconnects"
+    )
+    if needs_confirm(args, description):
+        return EXIT_NEEDS_CONFIRM
+
+    async with connect() as router:
+        result = await apply_nvram(router, values, "restart_wireless")
+        return _report_apply(result, description, args.json)
+
+
+async def cmd_wifi_country(args: argparse.Namespace) -> int:
+    code = args.code.upper()
+    values = {f"wl{i}_country_code": code for i in _bands(args.band)}
+    description = f"set the {args.band} country code to {code}"
+    if needs_confirm(args, description):
+        return EXIT_NEEDS_CONFIRM
+
+    async with connect() as router:
+        result = await apply_nvram(router, values, "restart_wireless")
+        exit_code = _report_apply(result, description, args.json)
+        if result["unchanged"]:
+            print(
+                "Country code is usually locked to the hardware SKU on stock "
+                "firmware. Compare against: asus nvram reg_spec location_code",
+                file=sys.stderr,
+            )
+        return exit_code
+
+
+# --------------------------------------------------------------------------
+# Firmware
+# --------------------------------------------------------------------------
+
+# The router queries ASUS asynchronously and the API gives no completion
+# signal, so the result is read back after a pause.
+FIRMWARE_CHECK_SECONDS = 5.0
+
+
+async def _latest_firmware(router: Any, wait: float, cached: bool) -> dict[str, Any]:
+    """Read firmware state, refreshing it against ASUS unless told not to.
+
+    `available` is a value cached in the router's nvram, refreshed only by the
+    router's own periodic check — which is off by default (webs_update_enable).
+    A version you are about to flash from has to be current, so the check is
+    run every time rather than trusting whatever was last left there.
+    """
+    if not cached:
+        async with progress("Retrieving router info"):
+            if await router.async_set_state(AsusSystem.FIRMWARE_CHECK):
+                await asyncio.sleep(wait)
+            return await router.async_get_data(AsusData.FIRMWARE, force=True) or {}
+    return await router.async_get_data(AsusData.FIRMWARE, force=True) or {}
+
+
+def _update_status(firmware: dict[str, Any]) -> tuple[str, str | None]:
+    """Classify firmware state as (status, latest version).
+
+    status is "update", "current" or "unknown". "unknown" is the honest answer
+    when the router could not reach ASUS: webs.available is only populated from
+    a reply, so an empty one means nothing was learned — which is different
+    from having learned that there is nothing to install.
+    """
+    webs = firmware.get("webs") or {}
+
+    if enum_name(webs.get("error")) not in ("NONE", "None"):
+        return "unknown", None
+    if not webs.get("available"):
+        return "unknown", None
+    if firmware.get("state") and firmware.get("available"):
+        return "update", str(firmware["available"])
+    return "current", str(webs["available"])
+
+
+async def cmd_firmware_info(args: argparse.Namespace) -> int:
+    async with connect() as router:
+        firmware = await _latest_firmware(router, args.wait, args.cached)
+        status, latest = _update_status(firmware)
+
+        lines = [f"Current    {firmware.get('current')}"]
+        if status == "update":
+            lines.append(f"Latest     {latest}   ** update available **")
+        elif status == "current":
+            lines.append(f"Latest     {latest}   (up to date)")
+        else:
+            lines.append(
+                "Latest     could not verify — the router got no answer from ASUS"
+            )
+        if args.cached:
+            lines.append("           (cached; not checked online just now)")
+        if firmware.get("state_beta"):
+            lines.append(f"Beta       {firmware.get('available_beta')}")
+
+        note = firmware.get("release_note")
+        if note and args.notes:
+            lines += ["", "Release note:", str(note)]
+        elif note and status == "update":
+            lines.append("\nRun `asus firmware info --notes` for the release note.")
+
+        emit({**firmware, "status": status, "latest": latest}, lines, args.json)
+    return EXIT_OK
+
+
+async def cmd_firmware_upgrade(args: argparse.Namespace) -> int:
+    """Download and flash a new firmware.
+
+    Unlike the other mutations this connects before it can honour the dry run,
+    because the version on offer has to be read before it can be named. Reading
+    firmware state has no side effects.
+    """
+    async with connect() as router:
+        firmware = await _latest_firmware(router, args.wait, cached=False)
+        current = str(firmware.get("current"))
+        status, latest = _update_status(firmware)
+
+        if args.beta:
+            if not firmware.get("state_beta") or not firmware.get("available_beta"):
+                print(
+                    f"No beta update is available; current version is {current}.",
+                    file=sys.stderr,
+                )
+                return EXIT_ERROR
+            status, latest = "update", str(firmware["available_beta"])
+
+        if status == "unknown":
+            print(
+                "Cannot verify the latest firmware version — the router got no "
+                "answer from ASUS. Refusing to flash on an unverified version.",
+                file=sys.stderr,
+            )
+            return EXIT_ERROR
+        if status == "current":
+            print(f"Already up to date on {current}.", file=sys.stderr)
+            return EXIT_ERROR
+
+        # With a terminal the version is shown and confirmed interactively.
+        # Without one there is nobody to read it, so --yes has to name the
+        # version explicitly rather than flash whatever turned up.
+        if args.yes and not sys.stdin.isatty():
+            if not args.to:
+                print(
+                    f"Refusing to flash unattended without --to.\n"
+                    f"  offered  {latest}\n"
+                    "Pass --to with that version to confirm it is the intended one.",
+                    file=sys.stderr,
+                )
+                return EXIT_ERROR
+            if args.to != latest:
+                print(
+                    "--to does not match what the router is offering.\n"
+                    f"  requested  {args.to}\n"
+                    f"  offered    {latest}",
+                    file=sys.stderr,
+                )
+                return EXIT_ERROR
+
+        description = (
+            f"FLASH firmware {latest} over {current}.\n"
+            "  The router downloads from ASUS, writes flash, then reboots.\n"
+            "  Every connection in the house drops for several minutes.\n"
+            "  Losing power while flash is being written can brick the router."
+        )
+        if needs_confirm(args, description):
+            return EXIT_NEEDS_CONFIRM
+
+        if not await router.async_set_state(AsusSystem.FIRMWARE_UPGRADE):
+            print("FAILED: the router refused the upgrade request", file=sys.stderr)
+            return EXIT_ERROR
+
+        # The API acknowledges the request; it reports nothing about the
+        # download or the flash. Do not call this a completed upgrade.
+        print(
+            f"Upgrade to {latest} requested.\n"
+            "The router reports no progress over this API. Expect 5-10 minutes "
+            "of downtime, then confirm the new version with: asus info"
+        )
+        return EXIT_OK
+
+
+# --------------------------------------------------------------------------
 # Raw access / system
 # --------------------------------------------------------------------------
 
@@ -423,7 +776,14 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     def mutation(sp: argparse.ArgumentParser) -> argparse.ArgumentParser:
-        sp.add_argument("--confirm", action="store_true", help="actually apply the change")
+        sp.add_argument(
+            "--yes", "-y", action="store_true", dest="yes",
+            help="apply without asking; without it you are prompted, or the "
+                 "command exits 3 when there is no terminal to ask at",
+        )
+        # Former name, kept working but no longer advertised.
+        sp.add_argument("--confirm", action="store_true", dest="yes",
+                        help=argparse.SUPPRESS)
         return sp
 
     p = sub.add_parser("info", help="model, firmware, uptime")
@@ -492,6 +852,54 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--id", required=True, type=int, choices=[1, 2, 3])
         p.set_defaults(func=cmd_guest_toggle, action=action)
 
+    # -- wireless security -------------------------------------------------
+    wifi = sub.add_parser("wifi", help="wireless security settings").add_subparsers(
+        dest="wifi_command", required=True
+    )
+
+    p = wifi.add_parser("show", help="radio, WPA mode, MFP, country code, WPS")
+    p.set_defaults(func=cmd_wifi_show)
+
+    wps = wifi.add_parser("wps", help="Wi-Fi Protected Setup").add_subparsers(
+        dest="wps_command", required=True
+    )
+    for action in ("enable", "disable"):
+        p = mutation(wps.add_parser(action, help=f"{action} WPS on all bands"))
+        p.set_defaults(func=cmd_wifi_wps, action=action)
+
+    p = mutation(wifi.add_parser("security", help="WPA mode and frame protection"))
+    p.add_argument("--band", default="both", choices=["2ghz", "5ghz", "both"])
+    p.add_argument("--mode", required=True, choices=sorted(WPA_MODES))
+    p.add_argument(
+        "--mfp",
+        choices=sorted(MFP_VALUES),
+        help="802.11w level; defaults to what the mode needs",
+    )
+    p.set_defaults(func=cmd_wifi_security)
+
+    p = mutation(wifi.add_parser("country", help="regulatory country code"))
+    p.add_argument("--band", default="both", choices=["2ghz", "5ghz", "both"])
+    p.add_argument("--code", required=True, help="two-letter code, e.g. AU")
+    p.set_defaults(func=cmd_wifi_country)
+
+    # -- firmware ----------------------------------------------------------
+    firmware = sub.add_parser("firmware", help="firmware version and upgrade")
+    firmware_sub = firmware.add_subparsers(dest="firmware_command", required=True)
+
+    p = firmware_sub.add_parser("info", help="current and latest version")
+    p.add_argument("--notes", action="store_true", help="show the release note")
+    p.add_argument("--cached", action="store_true",
+                   help="skip the online check and report the router's cached value")
+    p.add_argument("--wait", type=float, default=FIRMWARE_CHECK_SECONDS)
+    p.set_defaults(func=cmd_firmware_info)
+
+    p = mutation(firmware_sub.add_parser("upgrade", help="download and flash firmware"))
+    p.add_argument("--to", help="version to install; required with --yes when "
+                               "there is no terminal to confirm at")
+    p.add_argument("--beta", action="store_true", help="target the beta channel")
+    p.add_argument("--wait", type=float, default=FIRMWARE_CHECK_SECONDS)
+    p.set_defaults(func=cmd_firmware_upgrade)
+
     # -- raw / system ------------------------------------------------------
     p = sub.add_parser("nvram", help="read raw nvram variables (read-only)")
     p.add_argument("names", nargs="+", help="variable names")
@@ -505,8 +913,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
-    if not hasattr(args, "confirm"):
-        args.confirm = True  # read-only commands never need confirmation
+    if not hasattr(args, "yes"):
+        args.yes = True  # read-only commands never need confirmation
 
     try:
         sys.exit(asyncio.run(args.func(args)))
