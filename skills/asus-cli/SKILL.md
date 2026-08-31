@@ -24,31 +24,55 @@ it searched. Relay them and stop — never ask the user for the password in chat
 
 ## Reading state
 
-| Task | Command |
+The command tree is **noun then verb**, and it is regular: `show` is the only
+read verb, and a bare noun means `show`. You never have to guess which command
+holds a reading — pick the noun.
+
+```
+asus-cli show          # every reading below, in one connection
+asus-cli <noun>        # same as `asus-cli <noun> show`
+```
+
+| Noun | What it reads |
 |---|---|
-| Model, firmware, uptime | `asus-cli info` |
-| CPU, RAM, WAN, uptime | `asus-cli status` |
-| Connected devices | `asus-cli clients --online` |
-| All known devices | `asus-cli clients` |
-| Internet connection detail | `asus-cli wan` |
-| Firewall + filters + parental control | `asus-cli firewall` |
-| Port forwarding rules | `asus-cli pf list` |
-| Guest networks | `asus-cli guest list` |
-| Wireless security (WPA mode, MFP, WPS, country) | `asus-cli wifi show` |
-| Firmware version and available update | `asus-cli firmware info` |
-| Any raw setting | `asus-cli nvram <var> [<var> ...]` |
+| `system` | model, firmware, MAC, serial, AiMesh — nothing that moves |
+| `system health` | uptime, CPU, RAM, WAN summary — everything that moves |
+| `wan` | internet connection detail |
+| `clients` | known devices; `--online` for only the connected ones |
+| `firewall` | firewall, DoS, filters, parental control summary |
+| `parental` | parental control state and rules |
+| `portforward` | the global switch and the rules |
+| `guest` | guest wireless networks |
+| `wifi` | radio, WPA mode, MFP, country code, WPS |
+| `firmware` | installed version and what ASUS is offering right now |
+| `nvram get <var> ...` | any raw setting the nouns do not cover |
 
-Add `--json` to any read command when you need to parse the output rather
-than show it. Prefer the plain output when reporting to the user — it is
-already formatted for reading.
+**Start with `asus-cli show`** for anything resembling "how is the router" or
+"is everything OK". Each noun is a separate process and therefore a separate
+login to the router, so eight nouns cost eight handshakes; `show` costs one.
+It leaves out the firmware check (see below) and prints a client count rather
+than the table — run `asus-cli clients` when you need the devices themselves.
 
-`asus-cli status` takes ~2 seconds: CPU usage is a delta between two samples, so
-the command deliberately samples twice.
+Add `--json` to any read when you need to parse it. `asus-cli --json show`
+returns one object keyed by noun. Prefer the plain output when reporting to
+the user — it is already formatted for reading.
 
-`asus-cli firmware info` takes ~7 seconds because it makes the router query ASUS
-rather than trust its stored value. At a terminal it shows a spinner on
-stderr; when the output is piped or captured it prints nothing extra, so what
-you receive is unaffected. `--cached` skips the wait and the check.
+Two readings are slow, and both say why:
+
+- `asus-cli system health` and `asus-cli show` take ~2 s. CPU usage is a delta
+  between two samples, so the command deliberately samples twice.
+- `asus-cli firmware` takes ~7 s. It makes the router query ASUS every time and
+  ignores the copy in nvram, which is only refreshed by a periodic check that
+  is off by default and is therefore routinely months stale. There is no
+  cached mode: a version you might flash from has to be the current one.
+  `asus-cli show --firmware` folds this check into the sweep.
+
+At a terminal the slow calls show a spinner on stderr; piped or captured they
+print nothing extra, so what you receive is unaffected.
+
+Older names still work and still do the same thing — `info`, `status`,
+`pf list`, `guest list`, `firmware info`, `nvram <var>` — but use the names
+above when you write a command.
 
 ## Changing state
 
@@ -66,27 +90,30 @@ and exit 3 means "refused for want of consent" — distinct from exit 1, which
 means it tried and failed.
 
 ```bash
-asus-cli pf add --name Plex --port 32400 --to-ip 192.168.50.20   # dry run, exits 3
-asus-cli pf add --name Plex --port 32400 --to-ip 192.168.50.20 --yes
+asus-cli portforward add --name Plex --port 32400 --to-ip 192.168.50.20        # dry run, exits 3
+asus-cli portforward add --name Plex --port 32400 --to-ip 192.168.50.20 --yes
 ```
 
 Available mutations:
 
 ```bash
-asus-cli pf add --name NAME --port EXT --to-ip IP [--to-port INT] [--proto TCP|UDP|BOTH] --yes
-asus-cli pf remove --name NAME --yes          # or --port EXT
-asus-cli pf enable --yes                      # global port forwarding switch
-asus-cli pf disable --yes
+asus-cli portforward add --name NAME --port EXT --to-ip IP [--to-port INT] [--proto TCP|UDP|BOTH] --yes
+asus-cli portforward remove --name NAME --yes     # or --port EXT
+asus-cli portforward enable --yes                 # global port forwarding switch
+asus-cli portforward disable --yes
 asus-cli guest enable --band 2ghz --id 1 --yes
 asus-cli guest disable --band 5ghz --id 1 --yes
 asus-cli parental enable --yes
 asus-cli parental disable --yes
-asus-cli wifi wps disable --yes               # or enable
-asus-cli wifi security --band both|2ghz|5ghz --mode wpa2|wpa2wpa3|wpa3 [--mfp capable] --yes
-asus-cli wifi country --band 5ghz --code AU --yes
+asus-cli wifi wps disable --yes                   # or enable
+asus-cli wifi set-security --band both|2ghz|5ghz --mode wpa2|wpa2wpa3|wpa3 [--mfp capable] --yes
+asus-cli wifi set-country --band 5ghz --code AU --yes
 asus-cli firmware upgrade --yes [--to VERSION]    # downloads, flashes, reboots
 asus-cli reboot --yes
 ```
+
+`portforward` is also spelled `pf`, and `set-security` / `set-country` also
+answer to `security` / `country`.
 
 ### Rules you must follow
 
@@ -97,21 +124,27 @@ asus-cli reboot --yes
 3. **Port forwarding exposes a device to the internet.** Before adding a rule,
    say which device and port become reachable. If the target port is 22, 3389,
    445 or a database port, say so plainly and confirm the user intends it.
-4. **Check `asus-cli pf list` first.** The global switch can be OFF, in which case
-   rules exist but do nothing — `asus-cli pf add` warns about this, but say it too.
-5. **`asus-cli nvram` is read-only on purpose.** Writes exist only as named
-   commands — `pf`, `guest`, `parental`, `wifi`. If a setting has no command,
-   say it needs the web UI rather than improvising a raw write.
+4. **Check `asus-cli portforward` first.** The global switch can be OFF, in which
+   case rules exist but do nothing — `asus-cli portforward add` warns about this,
+   but say it too.
+5. **`asus-cli nvram get` is read-only on purpose.** Writes exist only as named
+   commands — `portforward`, `guest`, `parental`, `wifi`. If a setting has no
+   command, say it needs the web UI rather than improvising a raw write.
 6. **Never run `asus-cli firmware upgrade` unless the user asked to upgrade the
    firmware in those words.** It writes flash and reboots; a power cut partway
-   bricks the router. Show `asus-cli firmware info --notes` first so the user sees
+   bricks the router. Show `asus-cli firmware --notes` first so the user sees
    the version and the release note, then the dry run, then ask. Because you
    have no terminal, `--yes` also requires `--to` naming the exact offered
-   version — read it from `asus-cli firmware info`, never guess it. When the
+   version — read it from `asus-cli firmware`, never guess it. When the
    command returns, say the upgrade was *requested*: the API reports nothing
-   about the download or the flash, and only `asus-cli info` after the reboot
+   about the download or the flash, and only `asus-cli system` after the reboot
    shows whether it worked.
-7. **`asus-cli wifi security` and `asus-cli wifi country` restart both radios.** Every
+
+   Reporting the firmware version is only worth doing to answer one question:
+   is there a newer version to install? Say the installed version, the offered
+   version, and whether an upgrade is available. If the two match, say it is up
+   to date and stop there.
+7. **`asus-cli wifi set-security` and `asus-cli wifi set-country` restart both radios.** Every
    wireless client drops and reconnects. Say so before applying. These write
    nvram directly, so the command reads each value back afterwards and prints
    `before -> after`; a country code write in particular is often refused by
@@ -143,8 +176,8 @@ attack needs their ISP, not this checkbox. Sources are in
 
 The CLI covers the common cases, not all of AsusWRT. For anything else:
 
-- Read the current value with `asus-cli nvram <var>` to confirm what the setting is
-  called and how it is encoded.
+- Read the current value with `asus-cli nvram get <var>` to confirm what the
+  setting is called and how it is encoded.
 - Look it up in [reference/settings.md](reference/settings.md), which lists the
   variables, their encodings and which are verified against real hardware.
 - If it needs a write the CLI does not implement, say so rather than improvising.

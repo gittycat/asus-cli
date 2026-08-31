@@ -1,7 +1,7 @@
 [project]
 name = "asus-cli"
 version = "0.4.0"
-description = "Feasibility probe for controlling an ASUS RT-AX59U over its HTTP API"
+description = "CLI program to query and modify an ASUS RT-AX59U router over its HTTP API"
 readme = "README.md"
 authors = [
     { name = "Main Admin", email = "accounts@kiluna.com" }

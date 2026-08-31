@@ -10,18 +10,39 @@ from asusrouter import AsusData
 
 from helpers import DEFAULT_NVRAM, FakeRouter, default_data, invoke
 
+# Every reading, under its canonical name. `firmware` is absent on purpose:
+# it is the one read that has to poke the router (it makes it query ASUS), so
+# it cannot assert "wrote nothing" and lives in test_firmware.py instead.
 READ_COMMANDS = [
-    ("info",),
-    ("status", "--cpu-sample", "0"),
+    ("show", "--cpu-sample", "0"),
+    ("system",),
+    ("system", "show"),
+    ("system", "health", "--cpu-sample", "0"),
     ("clients",),
+    ("clients", "show"),
     ("clients", "--online"),
     ("wan",),
+    ("wan", "show"),
     ("firewall",),
+    ("firewall", "show"),
+    ("parental",),
+    ("parental", "show"),
+    ("portforward",),
+    ("portforward", "show"),
+    ("guest",),
+    ("guest", "show"),
+    ("wifi",),
+    ("wifi", "show"),
+    ("nvram", "get", "wl0_radio"),
+]
+
+# The names that existed before the tree was regularised. They are hidden from
+# --help but must keep producing the same reading.
+LEGACY_COMMANDS = [
+    ("info",),
+    ("status", "--cpu-sample", "0"),
     ("pf", "list"),
     ("guest", "list"),
-    ("wifi", "show"),
-    ("firmware", "info", "--cached"),
-    ("firmware", "info", "--cached", "--notes"),
     ("nvram", "wl0_radio"),
 ]
 
@@ -41,20 +62,40 @@ def test_read_commands_emit_valid_json(router, argv):
     json.loads(result.out)
 
 
+@pytest.mark.parametrize("argv", LEGACY_COMMANDS, ids=lambda a: " ".join(a))
+def test_legacy_names_still_read(router, argv):
+    result = invoke(router, *argv)
+    assert result.code == 0
+    assert result.out.strip()
+    assert not router.touched
+
+
 # -- info / status ---------------------------------------------------------
 
 
-def test_info_reports_model_and_uptime(router):
-    lines = invoke(router, "info").lines
+def test_system_show_reports_identity(router):
+    lines = invoke(router, "system", "show").lines
     assert "RT-AX59U" in lines[0]
     assert "3.0.0.4.388.34011" in lines[1]
     assert "merlin=False" in lines[1]
+
+
+def test_system_show_holds_nothing_that_moves(router):
+    """`show` is what does not change until a reboot; live values are `health`."""
+    out = invoke(router, "system", "show").out
+    assert "Uptime" not in out
+    assert "CPU" not in out
+    assert "RAM" not in out
+
+
+def test_system_health_reports_uptime(router):
     # 3 d 4 h of uptime seconds in the fixture.
+    lines = invoke(router, "system", "health", "--cpu-sample", "0").lines
     assert "3 d 4 h" in [line for line in lines if line.startswith("Uptime")][0]
 
 
-def test_status_reports_cpu_ram_and_wan(router):
-    out = invoke(router, "status", "--cpu-sample", "0").out
+def test_system_health_reports_cpu_ram_and_wan(router):
+    out = invoke(router, "system", "health", "--cpu-sample", "0").out
     assert "3.5% over 2 cores" in out
     assert "53.0%" in out
     assert "(271 / 512 MB)" in out

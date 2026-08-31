@@ -59,60 +59,87 @@ def with_beta() -> FakeRouter:
     return firmware_router(state_beta=True, available_beta=BETA)
 
 
-# -- info ------------------------------------------------------------------
+# -- show ------------------------------------------------------------------
 
 
-def test_info_checks_online_before_reporting(router):
-    """The cached value is refreshed every time; a stale version is useless."""
-    result = invoke(router, "firmware", "info", *NOWAIT)
+def test_show_checks_online_before_reporting(router):
+    """The stored value is ignored; only what ASUS offers right now counts."""
+    result = invoke(router, "firmware", "show", *NOWAIT)
 
     assert router.states == [(AsusSystem.FIRMWARE_CHECK, {})]
     assert f"Current    {CURRENT}" in result.out
     assert f"Latest     {OFFERED}   ** update available **" in result.out
 
 
-def test_info_cached_skips_the_online_check(router):
-    result = invoke(router, "firmware", "info", "--cached")
+def test_show_names_the_upgrade_command_when_one_is_offered(router):
+    """The only reason to read this is to decide whether to upgrade."""
+    out = invoke(router, "firmware", "show", *NOWAIT).out
+    assert f"asus-cli firmware upgrade --to {OFFERED} --yes" in out
 
-    assert router.states == []
-    assert "(cached; not checked online just now)" in result.out
+
+def test_show_offers_no_upgrade_line_when_up_to_date():
+    out = invoke(up_to_date(), "firmware", "show", *NOWAIT).out
+    assert "firmware upgrade" not in out
 
 
-def test_info_reports_being_up_to_date():
-    out = invoke(up_to_date(), "firmware", "info", *NOWAIT).out
+def test_info_is_still_accepted_as_an_alias(router):
+    """A name an agent already learned keeps working."""
+    result = invoke(router, "firmware", "info", *NOWAIT)
+    assert result.code == 0
+    assert f"Current    {CURRENT}" in result.out
+
+
+def test_the_stored_value_is_never_trusted():
+    """A router whose nvram copy is stale must not be reported from.
+
+    webs.available is the value the check just fetched; `available` is what
+    nvram happened to be holding. Only the former decides.
+    """
+    stale = firmware_router(
+        state=True,
+        available="3.0.0.4.388.00001_stale",
+        webs={"update": None, "upgrade": None, "error": WebsError.NONE,
+              "available": OFFERED, "available_beta": None},
+    )
+    result = invoke(stale, "firmware", "show", *NOWAIT)
+    assert stale.states == [(AsusSystem.FIRMWARE_CHECK, {})]
+
+
+def test_show_reports_being_up_to_date():
+    out = invoke(up_to_date(), "firmware", "show", *NOWAIT).out
     assert "(up to date)" in out
     assert "** update available **" not in out
 
 
-def test_info_says_it_could_not_verify_when_asus_gave_no_answer():
+def test_show_says_it_could_not_verify_when_asus_gave_no_answer():
     """Not knowing is different from knowing there is nothing to install."""
-    out = invoke(unreachable(), "firmware", "info", *NOWAIT).out
+    out = invoke(unreachable(), "firmware", "show", *NOWAIT).out
     assert "could not verify" in out
     assert "up to date" not in out
 
 
-def test_info_treats_a_download_error_as_unverified():
-    out = invoke(download_error(), "firmware", "info", *NOWAIT).out
+def test_show_treats_a_download_error_as_unverified():
+    out = invoke(download_error(), "firmware", "show", *NOWAIT).out
     assert "could not verify" in out
 
 
-def test_info_hides_the_release_note_behind_a_flag(router):
-    without = invoke(router, "firmware", "info", *NOWAIT).out
-    assert "Run `asus-cli firmware info --notes`" in without
+def test_show_hides_the_release_note_behind_a_flag(router):
+    without = invoke(router, "firmware", "show", *NOWAIT).out
+    assert "Run `asus-cli firmware show --notes`" in without
     assert "Strengthened data handling" not in without
 
-    with_notes = invoke(router, "firmware", "info", "--notes", *NOWAIT).out
+    with_notes = invoke(router, "firmware", "show", "--notes", *NOWAIT).out
     assert "Release note:" in with_notes
     assert "Strengthened data handling" in with_notes
 
 
 def test_info_shows_the_beta_channel_only_when_one_is_offered():
-    assert f"Beta       {BETA}" in invoke(with_beta(), "firmware", "info", *NOWAIT).out
-    assert "Beta" not in invoke(up_to_date(), "firmware", "info", *NOWAIT).out
+    assert f"Beta       {BETA}" in invoke(with_beta(), "firmware", "show", *NOWAIT).out
+    assert "Beta" not in invoke(up_to_date(), "firmware", "show", *NOWAIT).out
 
 
 def test_info_json_carries_the_verdict(router):
-    payload = json.loads(invoke(router, "--json", "firmware", "info", *NOWAIT).out)
+    payload = json.loads(invoke(router, "--json", "firmware", "show", *NOWAIT).out)
     assert payload["current"] == CURRENT
     assert payload["status"] == "update"
     assert payload["latest"] == OFFERED
@@ -120,14 +147,14 @@ def test_info_json_carries_the_verdict(router):
 
 def test_info_json_says_unknown_rather_than_guessing():
     payload = json.loads(
-        invoke(unreachable(), "--json", "firmware", "info", *NOWAIT).out
+        invoke(unreachable(), "--json", "firmware", "show", *NOWAIT).out
     )
     assert payload["status"] == "unknown"
     assert payload["latest"] is None
 
 
 def test_info_never_flashes(router):
-    invoke(router, "firmware", "info", "--notes", *NOWAIT)
+    invoke(router, "firmware", "show", "--notes", *NOWAIT)
     assert AsusSystem.FIRMWARE_UPGRADE not in [s for s, _ in router.states]
 
 
@@ -210,7 +237,7 @@ def test_upgrade_does_not_claim_the_upgrade_finished(router):
 
     assert "requested" in out
     assert "reports no progress" in out
-    assert "asus-cli info" in out
+    assert "asus-cli system show" in out
     for word in ("Upgraded", "completed", "success"):
         assert word not in out
 
@@ -237,7 +264,7 @@ def test_upgrade_that_the_router_refuses_exits_nonzero():
 
 def test_the_check_is_silent_when_stderr_is_not_a_terminal(router):
     """Piped and captured output must stay exactly what it was."""
-    result = invoke(router, "firmware", "info", *NOWAIT)
+    result = invoke(router, "firmware", "show", *NOWAIT)
     assert result.err == ""
     assert "\r" not in result.out
 
@@ -260,7 +287,10 @@ def test_the_spinner_runs_and_cleans_up_at_a_terminal(monkeypatch, capsys):
     assert err.endswith("\r")  # the line was wiped, not left on screen
 
 
-def test_cached_produces_no_progress_output(router):
-    """--cached does no slow call, so there is nothing to report on."""
-    result = invoke(router, "firmware", "info", "--cached")
-    assert result.err == ""
+def test_the_check_is_the_only_thing_the_read_asks_of_the_router(router):
+    """`firmware show` writes nothing: FIRMWARE_CHECK is the whole of it."""
+    invoke(router, "firmware", "show", *NOWAIT)
+    assert router.states == [(AsusSystem.FIRMWARE_CHECK, {})]
+    assert router.services == []
+    assert router.applied_pf_rules is None
+    assert router.nvram == router._initial_nvram

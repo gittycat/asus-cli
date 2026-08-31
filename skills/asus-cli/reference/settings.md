@@ -10,12 +10,12 @@ from an educated guess.
 |---|---|
 | `library` | Read from the `asusrouter` package source. Definitive for how this tool behaves. |
 | `hardware` | Observed on a live RT-AX59U, firmware `3.0.0.4.388.34011_gfae8cb3`. |
-| `unverified` | From general AsusWRT knowledge. Confirm with `asus-cli nvram <var>` before relying on it. |
+| `unverified` | From general AsusWRT knowledge. Confirm with `asus-cli nvram get <var>` before relying on it. |
 
 Anything marked `unverified` can be promoted in one command:
 
 ```bash
-asus-cli nvram fw_enable_x fw_dos_x        # empty result = wrong name for this firmware
+asus-cli nvram get fw_enable_x fw_dos_x        # empty result = wrong name for this firmware
 ```
 
 ---
@@ -158,11 +158,11 @@ Both actions go through `AsusSystem`:
 Both are dispatched with `service=None` and `expect_modify=False`
 (`system.py::STATE_MAP`), so `async_set_state` returns True as soon as the
 request is sent. **It is not evidence that anything happened.** The check is
-asynchronous with no completion signal, which is why `asus-cli firmware info`
+asynchronous with no completion signal, which is why `asus-cli firmware`
 sleeps before re-reading; the upgrade reports nothing at all, which is why
-`asus-cli firmware upgrade` says "requested" and points at `asus-cli info`.
+`asus-cli firmware upgrade` says "requested" and points at `asus-cli system`.
 
-`asus-cli firmware info` runs the check every time rather than reporting the
+`asus-cli firmware` runs the check every time rather than reporting the
 stored value, because `webs_state_info` is refreshed only by the router's own
 periodic check and `webs_update_enable` is `0` by default — the stored version
 can be arbitrarily old.
