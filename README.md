@@ -2,7 +2,7 @@
 
 This repo contains a SKILL.md aimed at CLI based coding agents. It was tested
 with Claude Code and OpenAI Codex but it should work with others as it follows
-the published SKILL guidelines from Anthropic.
+the published [SKILL specification](https://agentskills.io/specification) from Anthropic.
 
 The skill tells an AI agent how to connect to a home ASUS Router, extract info
 on the network and change some settings. Only a few of the available settings
@@ -12,7 +12,7 @@ have been implemented but it would be trivial to add missing ones.
 
 You need [uv](https://docs.astral.sh/uv/) and your router's admin password.
 
-**1. Install the CLI the skill drives**
+**1. Install the CLI program that the skill will drive**
 
 ```bash
 uv tool install git+https://github.com/gittycat/asus-skill
@@ -47,17 +47,20 @@ git clone --depth 1 https://github.com/gittycat/asus-skill /tmp/ars \
 **4. Ask your agent**
 
 ```
-what devices are connected to my asus router?
+what devices are connected to my Asus router?
 is my asus router's firewall on?
 open port 32400 on the asus for my media server
 ```
 
   
-**IMPORTANT** You need to mention **asus** in your request. The word "router" is way too generic in a coding context, which would likely result in the skill being needlessly loaded whenever a request for a react router or any similar unrelated name would be used. Two hardware-only phrasings also work without it — *who's on my
+**IMPORTANT** You need to mention **asus** in your first request so that the skill loads in the context. 
+The word "router" is way too generic in a coding context, which would likely result in the skill being needlessly loaded for unrelated requests. Two hardware-only phrasings also work without it — *who's on my
 WiFi?* and *what devices are on my home network?*
 
-<details>
-<summary>Other ways to install, and where the config is read from</summary>
+### Other Agents
+
+  
+NOT TESTED.
 
 **Any other Agent Skills host** — Cursor, Gemini CLI, GitHub Copilot, VS Code,
 Goose, Junie — reads the same `skills/asus-skill` folder from its own skills
@@ -160,15 +163,8 @@ the tool rather than in the instructions.
   read only by the CLI on your machine, and never sent to a model.
 
 ---
+Tested on a ASUS RT-AX59U with `3.0.0.4` (stock, not Merlin) and `asusrouter` python library 1.21.
 
-## Tested on
-
-| | |
-|---|---|
-| Router | ASUS RT-AX59U |
-| Firmware | `3.0.0.4.388.34011_gfae8cb3` (stock, not Merlin) |
-| Library | `asusrouter` 1.21.3 |
-| Python | 3.13 |
 
 Other AsusWRT routers should work — the library lists 27 confirmed models
 across WiFi 4 through WiFi 7, on stock and Merlin firmware — but the
