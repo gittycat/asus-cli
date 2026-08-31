@@ -1,6 +1,6 @@
 [project]
 name = "asus-cli"
-version = "0.3.0"
+version = "0.4.0"
 description = "Feasibility probe for controlling an ASUS RT-AX59U over its HTTP API"
 readme = "README.md"
 authors = [
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-asus = "asus_cli.cli:main"
+asus-cli = "asus_cli.cli:main"
 probe = "asus_cli.probe:main"
 
 [build-system]

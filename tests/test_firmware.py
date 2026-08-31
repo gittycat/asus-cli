@@ -98,7 +98,7 @@ def test_info_treats_a_download_error_as_unverified():
 
 def test_info_hides_the_release_note_behind_a_flag(router):
     without = invoke(router, "firmware", "info", *NOWAIT).out
-    assert "Run `asus firmware info --notes`" in without
+    assert "Run `asus-cli firmware info --notes`" in without
     assert "Strengthened data handling" not in without
 
     with_notes = invoke(router, "firmware", "info", "--notes", *NOWAIT).out
@@ -210,7 +210,7 @@ def test_upgrade_does_not_claim_the_upgrade_finished(router):
 
     assert "requested" in out
     assert "reports no progress" in out
-    assert "asus info" in out
+    assert "asus-cli info" in out
     for word in ("Upgraded", "completed", "success"):
         assert word not in out
 

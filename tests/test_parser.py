@@ -107,7 +107,7 @@ def test_mfp_defaults_to_unset_so_the_mode_decides():
 
 
 def test_json_is_a_global_flag_not_a_subcommand_flag():
-    """`asus --json nvram X` works; `asus nvram X --json` does not."""
+    """`asus-cli --json nvram X` works; `asus-cli nvram X --json` does not."""
     assert parse("--json", "nvram", "wl0_radio").json is True
     with pytest.raises(SystemExit):
         parse("nvram", "wl0_radio", "--json")

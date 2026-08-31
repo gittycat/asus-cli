@@ -18,6 +18,10 @@ You need [uv](https://docs.astral.sh/uv/) and your router's admin password.
 uv tool install git+https://github.com/gittycat/asus-cli
 ```
 
+The command is `asus-cli`. It was called `asus` before v0.4.0; if you have that
+version installed, run `uv tool uninstall asus-cli` first so the old `asus`
+binary is removed, then install again.
+
 **2. Save your router credentials**
 
 ```bash
@@ -28,7 +32,7 @@ ROUTER_USER=admin
 ROUTER_PASS=your-router-password
 EOF
 
-asus info      # should print your model, firmware and uptime
+asus-cli info      # should print your model, firmware and uptime
 ```
 
 **3. Install the skill**
@@ -96,7 +100,7 @@ under two identities.
 Older config directories (`~/.config/asus-skill`, `~/.config/asus-router`) are
 still read after those, so an existing install keeps working after the rename.
 
-`env.example` is a starting template. If `asus info` gives a login error, check
+`env.example` is a starting template. If `asus-cli info` gives a login error, check
 that your account is the router **admin**, not a limited family member.
 
 </details>
@@ -126,16 +130,16 @@ that changes the router requires explicit confirmation; see [Safety](#safety).
 The CLI works on its own, without an agent:
 
 ```bash
-asus info                    # model, firmware, uptime
-asus status                  # cpu, ram, wan, uptime
-asus clients --online        # who's connected
-asus wan                     # ip, gateway, dns, protocol
-asus firewall                # firewall + filters + parental control
-asus pf list                 # port forwarding rules
-asus guest list              # guest networks
-asus wifi show               # wps, wpa mode, frame protection, country
-asus firmware info --notes   # current vs latest version, release note
-asus nvram vts_rulelist      # any raw setting
+asus-cli info                    # model, firmware, uptime
+asus-cli status                  # cpu, ram, wan, uptime
+asus-cli clients --online        # who's connected
+asus-cli wan                     # ip, gateway, dns, protocol
+asus-cli firewall                # firewall + filters + parental control
+asus-cli pf list                 # port forwarding rules
+asus-cli guest list              # guest networks
+asus-cli wifi show               # wps, wpa mode, frame protection, country
+asus-cli firmware info --notes   # current vs latest version, release note
+asus-cli nvram vts_rulelist      # any raw setting
 ```
 
 Add `--json` to any of them for machine-readable output.
@@ -143,10 +147,10 @@ Add `--json` to any of them for machine-readable output.
 Changing things takes two steps by design:
 
 ```bash
-asus pf add --name Plex --port 32400 --to-ip 192.168.50.20
+asus-cli pf add --name Plex --port 32400 --to-ip 192.168.50.20
 # → prints what it would do, changes nothing, exits 3
 
-asus pf add --name Plex --port 32400 --to-ip 192.168.50.20 --yes
+asus-cli pf add --name Plex --port 32400 --to-ip 192.168.50.20 --yes
 # → applies it
 ```
 
@@ -188,12 +192,12 @@ the tool rather than in the instructions.
   `[y/N]` prompt; with neither, the command prints what it would do and exits
   3 without touching anything. Silence never means yes, so a bare mutating
   command is a safe dry run.
-- **No raw writes.** `asus nvram` reads any setting; there is deliberately no
+- **No raw writes.** `asus-cli nvram` reads any setting; there is deliberately no
   write counterpart. Blind nvram writes are how working configurations get
   destroyed. Only reviewed, named operations can write.
 - **Writes are verified, not assumed.** The router reporting that it ran the
   service does not mean the value stuck — a country code write is routinely
-  accepted and then ignored. Every `asus wifi` command reads the variables back
+  accepted and then ignored. Every `asus-cli wifi` command reads the variables back
   and prints `before -> after`, exiting non-zero if anything did not change.
 - **Duplicate port detection.** Adding a rule for an external port that is
   already forwarded fails unless you pass `--force`.
@@ -325,7 +329,7 @@ afterwards. They are called out because they are not written down anywhere:
    `KeyError` on a router that has no rules yet. This tool builds the rule list
    itself and calls `async_apply_port_forwarding_rules` to avoid that path.
 2. **One CPU sample is never enough.** `usage` is computed against the previous
-   sample, so a single fetch always returns `None`. `asus status` samples twice,
+   sample, so a single fetch always returns `None`. `asus-cli status` samples twice,
    two seconds apart.
 3. **`client.state` is not the online flag.** `ConnectionState` is an `IntEnum`
    where `CONNECTED = 1`; comparing it to a string silently reports every device
@@ -343,7 +347,7 @@ breaking change stays a one-file fix.
 
 - **Read-only for content filtering.** URL and keyword filter rules can be read
   but not written. The variable names for them are `unverified` — if
-  `asus firewall` shows `? (None)`, that name is wrong for your firmware.
+  `asus-cli firewall` shows `? (None)`, that name is wrong for your firmware.
 - **Parental control is a global switch.** Per-device rules need the web UI.
 - **Limited wireless control.** WPS, WPA mode, frame protection and country
   code are settable; SSID, password, channel and bandwidth are not.

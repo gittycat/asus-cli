@@ -1,4 +1,4 @@
-"""asus — command line control for an ASUS router over its HTTP API.
+"""asus-cli — command line control for an ASUS router over its HTTP API.
 
 Read commands print a human-readable summary, or JSON with --json.
 Every command that changes the router asks first. --yes skips the asking;
@@ -319,7 +319,7 @@ async def cmd_pf_add(args: argparse.Namespace) -> int:
 
         data = await router.async_get_data(AsusData.PORT_FORWARDING, force=True) or {}
         if data.get("state") == AsusPortForwarding.OFF:
-            print("Note: port forwarding is globally OFF. Run: asus pf enable --yes")
+            print("Note: port forwarding is globally OFF. Run: asus-cli pf enable --yes")
         return EXIT_OK if ok else EXIT_ERROR
 
 
@@ -585,7 +585,7 @@ async def cmd_wifi_country(args: argparse.Namespace) -> int:
         if result["unchanged"]:
             print(
                 "Country code is usually locked to the hardware SKU on stock "
-                "firmware. Compare against: asus nvram reg_spec location_code",
+                "firmware. Compare against: asus-cli nvram reg_spec location_code",
                 file=sys.stderr,
             )
         return exit_code
@@ -658,7 +658,7 @@ async def cmd_firmware_info(args: argparse.Namespace) -> int:
         if note and args.notes:
             lines += ["", "Release note:", str(note)]
         elif note and status == "update":
-            lines.append("\nRun `asus firmware info --notes` for the release note.")
+            lines.append("\nRun `asus-cli firmware info --notes` for the release note.")
 
         emit({**firmware, "status": status, "latest": latest}, lines, args.json)
     return EXIT_OK
@@ -735,7 +735,7 @@ async def cmd_firmware_upgrade(args: argparse.Namespace) -> int:
         print(
             f"Upgrade to {latest} requested.\n"
             "The router reports no progress over this API. Expect 5-10 minutes "
-            "of downtime, then confirm the new version with: asus info"
+            "of downtime, then confirm the new version with: asus-cli info"
         )
         return EXIT_OK
 
@@ -770,7 +770,7 @@ async def cmd_reboot(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="asus", description="Control an ASUS router over its HTTP API."
+        prog="asus-cli", description="Control an ASUS router over its HTTP API."
     )
     parser.add_argument("--json", action="store_true", help="machine-readable output")
     sub = parser.add_subparsers(dest="command", required=True)
