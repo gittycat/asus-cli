@@ -1,5 +1,5 @@
 ---
-name: asus-skill
+name: asus-cli
 description: Inspect and control an ASUS (AsusWRT) home router over its HTTP API - connected devices, WAN and internet status, CPU and RAM, firewall state, port forwarding, guest WiFi, parental control and WiFi security (WPS, WPA2/WPA3, country code). The request must name the router explicitly: use this skill only when it says "asus", or asks who is connected to my WiFi / what devices are on my home network. Do NOT load on the word "router" by itself - in a codebase that almost always means Express, React Router, vue-router, or API and message routing.
 ---
 

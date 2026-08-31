@@ -57,8 +57,9 @@ def config_paths() -> list[Path]:
     if override := os.getenv("ASUS_ENV_FILE"):
         paths.append(Path(override).expanduser())
     paths.append(Path.cwd() / ".env")
+    paths.append(Path.home() / ".config" / "asus-cli" / ".env")
+    # Legacy locations from before the project was renamed to asus-cli.
     paths.append(Path.home() / ".config" / "asus-skill" / ".env")
-    # Legacy location from before the project was renamed to asus-skill.
     paths.append(Path.home() / ".config" / "asus-router" / ".env")
     return paths
 

@@ -20,7 +20,7 @@ import aiohttp
 
 from asusrouter import AsusData, AsusRouter, AsusRouterError
 
-from asus_skill.router import ConfigError, load_config
+from asus_cli.router import ConfigError, load_config
 
 # Data types worth probing for a "does this work at all" test.
 # Order matters only for readability of the output.

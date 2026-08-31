@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from asus_skill import cli
+from asus_cli import cli
 from helpers import FakeRouter, invoke
 
 MUTATIONS = [

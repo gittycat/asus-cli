@@ -105,7 +105,7 @@ wheels = [
 ]
 
 [[package]]
-name = "asus-skill"
+name = "asus-cli"
 version = "0.3.0"
 source = { editable = "." }
 dependencies = [

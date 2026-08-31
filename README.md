@@ -15,14 +15,14 @@ You need [uv](https://docs.astral.sh/uv/) and your router's admin password.
 **1. Install the CLI program that the skill will drive**
 
 ```bash
-uv tool install git+https://github.com/gittycat/asus-skill
+uv tool install git+https://github.com/gittycat/asus-cli
 ```
 
 **2. Save your router credentials**
 
 ```bash
-mkdir -p ~/.config/asus-skill
-cat > ~/.config/asus-skill/.env <<'EOF'
+mkdir -p ~/.config/asus-cli
+cat > ~/.config/asus-cli/.env <<'EOF'
 ROUTER_HOST=192.168.50.1
 ROUTER_USER=admin
 ROUTER_PASS=your-router-password
@@ -35,13 +35,13 @@ asus info      # should print your model, firmware and uptime
 
 ```bash
 # Claude Code
-claude plugin marketplace add gittycat/asus-skill
-claude plugin install asus-skill@asus-skill -y
+claude plugin marketplace add gittycat/asus-cli
+claude plugin install asus-cli@asus-cli -y
 
 # Codex
 mkdir -p ~/.agents/skills
-git clone --depth 1 https://github.com/gittycat/asus-skill /tmp/ars \
-  && cp -r /tmp/ars/skills/asus-skill ~/.agents/skills/ && rm -rf /tmp/ars
+git clone --depth 1 https://github.com/gittycat/asus-cli /tmp/ars \
+  && cp -r /tmp/ars/skills/asus-cli ~/.agents/skills/ && rm -rf /tmp/ars
 ```
 
 **4. Ask your agent**
@@ -63,7 +63,7 @@ WiFi?* and *what devices are on my home network?*
 NOT TESTED.
 
 **Any other Agent Skills host** — Cursor, Gemini CLI, GitHub Copilot, VS Code,
-Goose, Junie — reads the same `skills/asus-skill` folder from its own skills
+Goose, Junie — reads the same `skills/asus-cli` folder from its own skills
 directory. Check your agent's docs for the path; the skill needs no changes.
 
 **Claude Code, one clone with the source included.** Cloning into your skills
@@ -71,27 +71,30 @@ directory registers it as a plugin *and* gives you something to install the CLI
 from:
 
 ```bash
-git clone https://github.com/gittycat/asus-skill ~/.claude/skills/asus-skill
-uv tool install ~/.claude/skills/asus-skill
+git clone https://github.com/gittycat/asus-cli ~/.claude/skills/asus-cli
+uv tool install ~/.claude/skills/asus-cli
 ```
 
 **Claude Code, one session only**, while editing a local checkout:
 
 ```bash
-claude --plugin-dir /path/to/asus-skill
+claude --plugin-dir /path/to/asus-cli
 ```
 
 Do not combine these with the marketplace install — the skill would load twice
 under two identities.
 
-**Updating:** `claude plugin marketplace update asus-skill`, or
+**Updating:** `claude plugin marketplace update asus-cli`, or
 `git pull` in the clone.
 
 **Config lookup order**, first match wins:
 
 1. `$ASUS_ENV_FILE`, if you set it
 2. `.env` in the current directory
-3. `~/.config/asus-skill/.env`
+3. `~/.config/asus-cli/.env`
+
+Older config directories (`~/.config/asus-skill`, `~/.config/asus-router`) are
+still read after those, so an existing install keeps working after the rename.
 
 `env.example` is a starting template. If `asus info` gives a login error, check
 that your account is the router **admin**, not a limited family member.
@@ -205,7 +208,7 @@ Tested on a ASUS RT-AX59U with `3.0.0.4` (stock, not Merlin) and `asusrouter` py
 
 Other AsusWRT routers should work — the library lists 27 confirmed models
 across WiFi 4 through WiFi 7, on stock and Merlin firmware — but the
-specifics in [`settings.md`](skills/asus-skill/reference/settings.md) were
+specifics in [`settings.md`](skills/asus-cli/reference/settings.md) were
 confirmed on an RT-AX59U. Two data types (`system`, `temperature`) return
 nothing on this model and are simply not used.
 
@@ -253,7 +256,7 @@ standing answer from the Asuswrt-Merlin community is that
 [there is no documentation](https://www.snbforums.com/threads/documentation-for-nvram-variables.74894/)
 and the only real source is `router/shared/defaults.c` in the GPL source drop.
 That gap is why this repository ships its own
-[settings reference](skills/asus-skill/reference/settings.md) with provenance
+[settings reference](skills/asus-cli/reference/settings.md) with provenance
 labels instead of pretending to be authoritative.
 
 **Firmware options.** There is no Asuswrt-Merlin build for the RT-AX59U;
@@ -308,7 +311,7 @@ schemas validated before execution, per-tool permission prompts instead of one
 coarse "allow this command", and a single remote deployment serving many
 clients rather than an install on every machine. The two are not exclusive:
 an MCP server would be a thin wrapper over the same functions in
-`src/asus_skill/router.py`.
+`src/asus_cli/router.py`.
 
 ### Discovered by testing, not from any source
 
@@ -331,7 +334,7 @@ afterwards. They are called out because they are not written down anywhere:
 The port forwarding helpers are additionally marked *legacy, "not tested, not
 used, not documented"* in the library source, with a note that they may be
 removed ([issue #611](https://github.com/Vaskivskyi/asusrouter/issues/611)).
-They are confined to `src/asus_skill/router.py` and the two `pf` commands so a
+They are confined to `src/asus_cli/router.py` and the two `pf` commands so a
 breaking change stays a one-file fix.
 
 ---
@@ -363,7 +366,7 @@ diff before.txt after.txt
 ```
 
 The diff names the variable and shows its encoding. Add it to `FIREWALL_VARS`
-in `src/asus_skill/cli.py` to read it, and to the settings reference with a
+in `src/asus_cli/cli.py` to read it, and to the settings reference with a
 `hardware` label. SSH is enabled in the web UI under
 *Administration → System → Service → Enable SSH* — it is not exposed in the
 mobile app.

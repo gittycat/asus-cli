@@ -14,7 +14,7 @@ from asusrouter import AsusData
 from asusrouter.modules.firmware import WebsError
 from asusrouter.modules.system import AsusSystem
 
-from asus_skill import cli
+from asus_cli import cli
 from helpers import FakeRouter, default_data, invoke
 
 OFFERED = "3.0.0.4.388.34098_g9b0c9ae"

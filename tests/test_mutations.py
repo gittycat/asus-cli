@@ -11,7 +11,7 @@ from asusrouter.modules.port_forwarding import AsusPortForwarding
 from asusrouter.modules.system import AsusSystem
 from asusrouter.modules.wlan import AsusWLAN
 
-from asus_skill import cli
+from asus_cli import cli
 from helpers import FakeRouter, invoke
 
 

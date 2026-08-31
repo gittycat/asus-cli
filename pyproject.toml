@@ -1,5 +1,5 @@
 [project]
-name = "asus-skill"
+name = "asus-cli"
 version = "0.3.0"
 description = "Feasibility probe for controlling an ASUS RT-AX59U over its HTTP API"
 readme = "README.md"
@@ -13,8 +13,8 @@ dependencies = [
 ]
 
 [project.scripts]
-asus = "asus_skill.cli:main"
-probe = "asus_skill.probe:main"
+asus = "asus_cli.cli:main"
+probe = "asus_cli.probe:main"
 
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]

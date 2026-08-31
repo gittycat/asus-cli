@@ -21,7 +21,7 @@ from asusrouter.modules.port_forwarding import AsusPortForwarding, PortForwardin
 from asusrouter.modules.system import AsusSystem
 from asusrouter.modules.wlan import AsusWLAN
 
-from asus_skill.router import (
+from asus_cli.router import (
     ConfigError,
     apply_nvram,
     connect,

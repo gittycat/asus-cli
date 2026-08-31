@@ -8,8 +8,8 @@ import pytest
 
 from asusrouter.modules.port_forwarding import AsusPortForwarding, PortForwardingRule
 
-from asus_skill import cli
-from asus_skill.router import (
+from asus_cli import cli
+from asus_cli.router import (
     ConfigError,
     RouterConfig,
     apply_nvram,
@@ -30,7 +30,7 @@ def _empty_env(tmp_path):
     """An env file that exists but sets nothing.
 
     load_config stops at the first path that exists, so this keeps a real
-    ./.env or ~/.config/asus-skill/.env out of the test.
+    ./.env or ~/.config/asus-cli/.env out of the test.
     """
     path = tmp_path / "empty.env"
     path.write_text("")
