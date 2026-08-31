@@ -1,15 +1,26 @@
-# ASUS Router Skill for CLI Coding Agent
+# ASUS Router MCP and SKILL for AI Agents
 
-This repo contains a SKILL.md aimed at CLI based coding agents. It was tested
-with Claude Code and OpenAI Codex but it should work with others as it follows
-the published [SKILL specification](https://agentskills.io/specification) from Anthropic.
+## TLDR
 
-The skill tells an AI agent how to connect to a home ASUS Router, extract info
-on the network and change some settings using the included asus-cli tool.
+> Use the SKILL if you're using Claude Code or Codex. It consumes less than 2400 tokens.
+>
+> The MCP server is for AI apps or web based interfaces. It will still be lazy
+> loaded to minimise context use. That's what CC and Codex do as of Aug 2026
+> instead of loading the full schema in context.
+>
+> Both include a custom python tool, **asus-cli**, to connect to a home ASUS (AsusWRT) router.  The tool can be used manually but it aimed at AI agents. As such,a few railguards and utilities were built in such as not including direct nvram set, including json output everywhere, using guessable non-verb grammar, and requiring confirmation for any config change
 
-The following settings can be queried and modified:
+The MCP and SKILL are loaded into the context when you write **asus router** in
+your prompt. The word "router" alone is way too generic in a tech context.
+That would likely result in the skill being needlessly loaded
+for unrelated requests. Once loaded, the model doesn't need the asus hint.
+It'll use the skill for requests such as
+`who's on my WiFi?` or `what devices are on my home network?`
 
-**Queried**
+This `aus-cli` python tool uses the unpublished HTTP API of the ASUS router.
+This is the same API used by the official ASUS iOS app.
+
+## Router Params that can be Read
 
 - Router identity and live health — model, firmware, uptime, CPU, RAM
 - Internet connection — WAN link, IP, gateway, DNS
@@ -22,7 +33,7 @@ The following settings can be queried and modified:
 - Firmware — installed version vs. what ASUS is offering
 - Any raw router setting by name
 
-**Modified**
+## Router Params that can be Modified
 
 - Port forwarding — add, remove, enable/disable globally
 - Guest WiFi — enable/disable any of the six networks
@@ -30,7 +41,7 @@ The following settings can be queried and modified:
 - Parental control — enable/disable
 - Firmware upgrade, and reboot
 
-## How to Use
+## Installation
 
 You need [uv](https://docs.astral.sh/uv/) and your router's admin password.
 
@@ -77,23 +88,21 @@ git clone --depth 1 https://github.com/gittycat/asus-cli /tmp/ars \
   && cp -r /tmp/ars/skills/asus-cli ~/.agents/skills/ && rm -rf /tmp/ars
 ```
 
-**4. Ask your agent**
+## Sample Usage
 
 ```
-what devices are connected to my Asus router?
-is my asus router's firewall on?
-open port 32400 on the asus for my media server
-```
-
+Review the security settings on my Asus router  
   
-**IMPORTANT** You need to mention **asus** in your first request so that the skill loads in the context. 
-The word "router" is way too generic in a coding context, which would likely result in the skill being needlessly loaded for unrelated requests. Two hardware-only phrasings also work without it — *who's on my
-WiFi?* and *what devices are on my home network?*
+What devices are connected to my Asus router?
+   
+Open port 32400 on the asus for my media server
+```
+
+**IMPORTANT** Remember to mention **asus** in your first request so that the skill loads in the context.
 
 ### Other Agents
 
-  
-NOT TESTED.
+**NOT TESTED**
 
 **Any other Agent Skills host** — Cursor, Gemini CLI, GitHub Copilot, VS Code,
 Goose, Junie — reads the same `skills/asus-cli` folder from its own skills
@@ -105,7 +114,7 @@ from:
 
 ```bash
 git clone https://github.com/gittycat/asus-cli ~/.claude/skills/asus-cli
-uv tool install ~/.claude/skills/asus-cli
+uv tool install ~/.claude/skills/asus-cli --force
 ```
 
 **Claude Code, one session only**, while editing a local checkout:
@@ -134,12 +143,9 @@ that your account is the router **admin**, not a limited family member.
 
 </details>
 
----
+## asus-cli tool
 
-## 
-## Using it directly
-
-The CLI works on its own, without an agent:
+You can call the asus-cli tool works on its own, without an agent:
 
 ```bash
 asus-cli show                    # all of the below in one connection
@@ -186,7 +192,7 @@ real. **No test contacts a router**, so the suite is safe to run anywhere.
 What it covers:
 
 | File | Covers |
-|---|---|
+| --- | --- |
 | `test_parser.py` | Subcommand wiring, required arguments, refused invocations |
 | `test_read_commands.py` | Output of every read command, plain and `--json` |
 | `test_dry_run.py` | Every mutation refuses without `--yes` and writes nothing |
@@ -223,7 +229,6 @@ the tool rather than in the instructions.
 ---
 Tested on a ASUS RT-AX59U with `3.0.0.4` (stock, not Merlin) and `asusrouter` python library 1.21.
 
-
 Other AsusWRT routers should work — the library lists 27 confirmed models
 across WiFi 4 through WiFi 7, on stock and Merlin firmware — but the
 specifics in [`settings.md`](skills/asus-cli/reference/settings.md) were
@@ -238,7 +243,7 @@ There is no official ASUS API. Everything here rests on one of three
 foundations, and the reference documentation labels every fact with which one:
 
 | Label | Meaning |
-|---|---|
+| --- | --- |
 | `library` | Read directly from the `asusrouter` package source code |
 | `hardware` | Observed on a live RT-AX59U |
 | `unverified` | General AsusWRT knowledge, not yet confirmed on hardware |
@@ -260,7 +265,7 @@ Specific behaviours were taken from reading its source rather than its docs,
 because they are not documented anywhere:
 
 | What | Where it came from |
-|---|---|
+| --- | --- |
 | Port forwarding string encoding | `modules/endpoint/hook.py::process_port_forwarding` and `tools/legacy.py::compile_port_forwarding` |
 | `vts_enable_x` / `vts_rulelist` names | `modules/port_forwarding.py` |
 | Guest WiFi variable pattern | `modules/wlan.py::set_state` |
