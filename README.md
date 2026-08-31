@@ -5,7 +5,7 @@ with Claude Code and OpenAI Codex but it should work with others as it follows
 the published [SKILL specification](https://agentskills.io/specification) from Anthropic.
 
 The skill tells an AI agent how to connect to a home ASUS Router, extract info
-on the network and change some settings using the included asus-cli tool.
+on the network and change some settings using the included **asus-cli** tool.
 
 The following settings can be queried and modified:
 
@@ -30,7 +30,7 @@ The following settings can be queried and modified:
 - Parental control — enable/disable
 - Firmware upgrade, and reboot
 
-## How to Use
+## Installation
 
 You need [uv](https://docs.astral.sh/uv/) and your router's admin password.
 
@@ -77,12 +77,14 @@ git clone --depth 1 https://github.com/gittycat/asus-cli /tmp/ars \
   && cp -r /tmp/ars/skills/asus-cli ~/.agents/skills/ && rm -rf /tmp/ars
 ```
 
-**4. Ask your agent**
+**4. Ask your agent. Examples:**
 
 ```
-what devices are connected to my Asus router?
-is my asus router's firewall on?
-open port 32400 on the asus for my media server
+Review the security settings on my Asus router  
+  
+What devices are connected to my Asus router?
+   
+Open port 32400 on the asus for my media server
 ```
 
   
@@ -105,7 +107,7 @@ from:
 
 ```bash
 git clone https://github.com/gittycat/asus-cli ~/.claude/skills/asus-cli
-uv tool install ~/.claude/skills/asus-cli
+uv tool install ~/.claude/skills/asus-cli --force
 ```
 
 **Claude Code, one session only**, while editing a local checkout:
@@ -139,7 +141,7 @@ that your account is the router **admin**, not a limited family member.
 ## 
 ## Using it directly
 
-The CLI works on its own, without an agent:
+The asus-cli tool works on its own, without an agent:
 
 ```bash
 asus-cli show                    # all of the below in one connection
