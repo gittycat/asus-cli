@@ -1,13 +1,18 @@
 {
-  "name": "asus-cli",
+  "name": "asuswrt",
   "displayName": "ASUS Router Control",
   "version": "0.4.0",
-  "description": "Inspect and control an ASUS (AsusWRT) router from Claude Code — clients, WAN, firewall state, port forwarding, guest WiFi, WiFi security.",
+  "description": "Inspect and control an ASUS (AsusWRT) router from Claude Code — clients, WAN, firewall state, port forwarding, guest WiFi, WiFi security. Ships a skill and an MCP server. Requires the asuswrt program: install it first with `uv tool install \"git+https://github.com/gittycat/asuswrt-tools\" --with mcp`, otherwise the MCP server has no `asuswrt-mcp` command to start.",
   "author": {
     "name": "Main Admin",
     "email": "accounts@kiluna.com"
   },
-  "repository": "https://github.com/gittycat/asus-cli",
+  "repository": "https://github.com/gittycat/asuswrt-tools",
   "license": "MIT",
-  "keywords": ["asus", "asuswrt", "router", "network", "port-forwarding", "home-network", "wifi", "wpa3"]
+  "keywords": ["asus", "asuswrt", "router", "network", "port-forwarding", "home-network", "wifi", "wpa3"],
+  "mcpServers": {
+    "asuswrt": {
+      "command": "asuswrt-mcp"
+    }
+  }
 }

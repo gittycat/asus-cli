@@ -1,5 +1,5 @@
 {
-  "name": "asus-cli",
+  "name": "asuswrt",
   "owner": {
     "name": "gittycat",
     "url": "https://github.com/gittycat"
@@ -7,11 +7,11 @@
   "description": "Control an ASUS router from Claude Code.",
   "plugins": [
     {
-      "name": "asus-cli",
+      "name": "asuswrt",
       "source": "./",
-      "description": "Inspect and control an ASUS (AsusWRT) router — clients, WAN, firewall state, port forwarding, guest WiFi.",
+      "description": "Inspect and control an ASUS (AsusWRT) router — clients, WAN, firewall state, port forwarding, guest WiFi. Skill plus MCP server; needs the asuswrt program installed separately.",
       "category": "infrastructure",
-      "keywords": ["asus", "asuswrt", "router", "network", "port-forwarding"]
+      "keywords": ["asus", "asuswrt", "router", "network", "port-forwarding", "mcp"]
     }
   ]
 }
