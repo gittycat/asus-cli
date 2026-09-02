@@ -21,6 +21,7 @@ from asusrouter.modules.port_forwarding import AsusPortForwarding, PortForwardin
 from asusrouter.modules.system import AsusSystem
 from asusrouter.modules.wlan import AsusWLAN
 
+from asuswrt import render
 from asuswrt.router import (
     ConfigError,
     apply_nvram,
@@ -60,11 +61,6 @@ def emit(payload: Any, lines: list[str], as_json: bool) -> None:
         print(json.dumps(jsonable(payload), indent=2, default=str))
     else:
         print("\n".join(lines))
-
-
-def _onoff(value: Any) -> str:
-    """Render an nvram boolean, keeping the raw value visible when it is not one."""
-    return {"1": "ON", "0": "OFF"}.get(str(value), f"? ({value!r})")
 
 
 SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -145,14 +141,7 @@ async def _system_show(router: Any) -> tuple[dict[str, Any], list[str]]:
         "aimesh": identity.aimesh,
         "services": len(identity.services or []),
     }
-    lines = [
-        f"Model      {identity.model}",
-        f"Firmware   {identity.firmware}  (merlin={identity.merlin})",
-        f"MAC        {identity.mac}",
-        f"Serial     {identity.serial}",
-        f"AiMesh     {identity.aimesh}",
-    ]
-    return payload, lines
+    return payload, render.system(payload)
 
 
 async def _system_health(router: Any, cpu_sample: float) -> tuple[dict[str, Any], list[str]]:
@@ -179,36 +168,12 @@ async def _system_health(router: Any, cpu_sample: float) -> tuple[dict[str, Any]
         "wan_link": enum_name(internet.get("link")),
         "wan_ip": internet.get("ip_address"),
     }
-    lines = [
-        f"Uptime     {hours // 24} d {hours % 24} h",
-        f"CPU        {cpu_total:.1f}% over {len(cores)} cores"
-        if cpu_total is not None
-        else "CPU        unavailable",
-        f"RAM        {ram.get('usage', 0):.1f}%  "
-        f"({(ram.get('used') or 0) / 1024:.0f} / {(ram.get('total') or 0) / 1024:.0f} MB)",
-        f"WAN        {enum_name(internet.get('link'))}  ip={internet.get('ip_address')}",
-    ]
-    return payload, lines
+    return payload, render.health(payload)
 
 
 async def _wan_show(router: Any) -> tuple[dict[str, Any], list[str]]:
     wan = await router.async_get_data(AsusData.WAN) or {}
-    internet = wan.get("internet", {})
-    unit = internet.get("unit")
-    lines = [
-        f"Link       {enum_name(internet.get('link'))}",
-        f"IP         {internet.get('ip_address')}",
-        f"Unit       {unit}",
-    ]
-    port = wan.get(unit) if unit is not None else None
-    if isinstance(port, dict):
-        lines += [
-            f"State      {enum_name(port.get('state'))}",
-            f"Protocol   {enum_name((port.get('main') or {}).get('protocol'))}",
-            f"Gateway    {(port.get('main') or {}).get('gateway')}",
-            f"DNS        {(port.get('main') or {}).get('dns')}",
-        ]
-    return wan, lines
+    return wan, render.wan(wan)
 
 
 async def _client_rows(router: Any, online_only: bool = False) -> list[dict[str, Any]]:
@@ -235,17 +200,6 @@ async def _client_rows(router: Any, online_only: bool = False) -> list[dict[str,
     return rows
 
 
-def _client_lines(rows: list[dict[str, Any]]) -> list[str]:
-    lines = [f"{'NAME':<24} {'IP':<16} {'TYPE':<14} {'MAC':<18} STATE"]
-    lines += [
-        f"{(r['name'] or '-'):<24} {(r['ip'] or '-'):<16} {r['type']:<14} "
-        f"{r['mac']:<18} {'online' if r['online'] else 'offline'}"
-        for r in rows
-    ]
-    lines.append(f"\n{sum(r['online'] for r in rows)} online / {len(rows)} listed")
-    return lines
-
-
 # --------------------------------------------------------------------------
 # Read commands
 # --------------------------------------------------------------------------
@@ -268,7 +222,7 @@ async def cmd_system_health(args: argparse.Namespace) -> int:
 async def cmd_clients(args: argparse.Namespace) -> int:
     async with connect() as router:
         rows = await _client_rows(router, args.online)
-        emit(rows, _client_lines(rows), args.json)
+        emit(rows, render.client_lines(rows), args.json)
     return EXIT_OK
 
 
@@ -350,12 +304,7 @@ async def cmd_show(args: argparse.Namespace) -> int:
                 )
             )
 
-        out: list[str] = []
-        for title, _, _, lines in sections:
-            out += [title, *lines, ""]
-        if not args.firmware:
-            out.append("Firmware update not checked. Run: asuswrt firmware show")
-
+        out = render.overview(sections, firmware_checked=args.firmware)
         emit({key: payload for _, key, payload, _ in sections}, out, args.json)
     return EXIT_OK
 
@@ -368,17 +317,8 @@ async def cmd_show(args: argparse.Namespace) -> int:
 async def _pf_show(router: Any) -> tuple[dict[str, Any], list[str]]:
     data = await router.async_get_data(AsusData.PORT_FORWARDING) or {}
     rules = await port_forwarding_rules(router)
-    state = enum_name(data.get("state"))
-
-    lines = [f"Port forwarding is {state} ({len(rules)} rule(s))"]
-    if rules:
-        lines.append(f"\n{'NAME':<20} {'EXT':<8} {'->':<2} {'INTERNAL':<22} PROTO")
-        lines += [
-            f"{(r.name or '-'):<20} {r.port_external:<8} {'->':<2} "
-            f"{r.ip_address + ':' + r.port:<22} {r.protocol}"
-            for r in rules
-        ]
-    return {"state": state, "rules": rules}, lines
+    payload = {"state": enum_name(data.get("state")), "rules": rules}
+    return payload, render.port_forwarding(payload)
 
 
 async def cmd_pf_show(args: argparse.Namespace) -> int:
@@ -480,24 +420,8 @@ async def cmd_pf_toggle(args: argparse.Namespace) -> int:
 async def _firewall_show(router: Any) -> tuple[dict[str, Any], list[str]]:
     raw = await read_nvram(router, FIREWALL_VARS)
     pc = await router.async_get_data(AsusData.PARENTAL_CONTROL) or {}
-
-    def flag(name: str) -> str:
-        return _onoff(raw.get(name))
-
-    lines = [
-        f"Firewall          {flag('fw_enable_x')}",
-        f"DoS protection    {flag('fw_dos_x')}",
-        f"Logging           {flag('fw_log_x')}",
-        f"WAN web access    {flag('misc_http_x')}",
-        f"Port forwarding   {flag('vts_enable_x')}",
-        f"URL filter        {flag('url_enable_x')} "
-        f"({len(_split_rulelist(raw.get('url_rulelist')))} entries)",
-        f"Keyword filter    {flag('keyword_enable_x')} "
-        f"({len(_split_rulelist(raw.get('keyword_rulelist')))} entries)",
-        f"Parental control  {enum_name(pc.get('state'))} "
-        f"({len(pc.get('rules') or [])} rules, block_all={enum_name(pc.get('block_all'))})",
-    ]
-    return {"nvram": raw, "parental_control": pc}, lines
+    payload = {"nvram": raw, "parental_control": pc}
+    return payload, render.firewall(payload)
 
 
 async def cmd_firewall_show(args: argparse.Namespace) -> int:
@@ -507,24 +431,9 @@ async def cmd_firewall_show(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-def _split_rulelist(value: Any) -> list[str]:
-    """Split an ASUS rule list. Entries are separated by the escaped '<'."""
-    if not value or not isinstance(value, str):
-        return []
-    return [part for part in value.replace("&#60", "<").split("<") if part]
-
-
 async def _parental_show(router: Any) -> tuple[dict[str, Any], list[str]]:
     pc = await router.async_get_data(AsusData.PARENTAL_CONTROL) or {}
-    rules = pc.get("rules") or []
-    lines = [
-        f"Parental control  {enum_name(pc.get('state'))}",
-        f"Block all         {enum_name(pc.get('block_all'))}",
-        f"Rules             {len(rules)}",
-    ]
-    for rule in rules:
-        lines.append(f"  {rule}")
-    return pc, lines
+    return pc, render.parental(pc)
 
 
 async def cmd_parental_show(args: argparse.Namespace) -> int:
@@ -552,13 +461,7 @@ async def cmd_parental(args: argparse.Namespace) -> int:
 
 async def _guest_show(router: Any) -> tuple[dict[str, Any], list[str]]:
     gwlan = await router.async_get_data(AsusData.GWLAN) or {}
-    lines = [f"{'NETWORK':<12} {'STATE':<8} SSID"]
-    for key, value in sorted(gwlan.items()):
-        if not isinstance(value, dict):
-            continue
-        state = "ON" if value.get("bss_enabled") else "OFF"
-        lines.append(f"{key:<12} {state:<8} {value.get('ssid', '-')}")
-    return gwlan, lines
+    return gwlan, render.guest(gwlan)
 
 
 async def cmd_guest_show(args: argparse.Namespace) -> int:
@@ -622,48 +525,13 @@ def _report_apply(result: dict[str, Any], description: str, as_json: bool) -> in
     async_run_service reports whether the router accepted the request, not
     whether the value stuck, so the read-back is what decides success here.
     """
-    lines = [f"{'Applied' if result['ok'] else 'FAILED'}: {description}"]
-    for name, after in result["after"].items():
-        before = result["before"].get(name)
-        if name in result["unchanged"]:
-            # The write was accepted and then ignored by the firmware.
-            suffix = "  (REFUSED)"
-        elif str(before) == str(after):
-            # Already correct before the write. A success, not a refusal.
-            suffix = "  (already set)"
-        else:
-            suffix = ""
-        lines.append(f"  {name:<22} {before!r} -> {after!r}{suffix}")
-
-    if result["unchanged"]:
-        lines.append(
-            "\nDid not take the requested value: "
-            + ", ".join(result["unchanged"])
-            + "\nThe firmware is refusing the write; use the web UI for these."
-        )
-    emit(result, lines, as_json)
+    emit(result, render.apply_report(result, description), as_json)
     return EXIT_OK if result["ok"] and not result["unchanged"] else EXIT_ERROR
 
 
 async def _wifi_show(router: Any) -> tuple[dict[str, Any], list[str]]:
     raw = await read_nvram(router, WIFI_VARS)
-
-    lines = [
-        f"WPS               {_onoff(raw.get('wps_enable_x'))}"
-        f"  (wps_enable={raw.get('wps_enable')!r},"
-        f" multiband={raw.get('wps_multiband')!r})",
-        "",
-        f"{'BAND':<8} {'RADIO':<7} {'AUTH':<10} {'CRYPTO':<8} {'MFP':<10} COUNTRY",
-    ]
-    for band, i in BANDS.items():
-        mfp = str(raw.get(f"wl{i}_mfp"))
-        lines.append(
-            f"{band:<8} {_onoff(raw.get(f'wl{i}_radio')):<7} "
-            f"{str(raw.get(f'wl{i}_auth_mode_x')):<10} "
-            f"{str(raw.get(f'wl{i}_crypto')):<8} "
-            f"{MFP_NAMES.get(mfp, mfp):<10} {raw.get(f'wl{i}_country_code')}"
-        )
-    return raw, lines
+    return raw, render.wifi(raw)
 
 
 async def cmd_wifi_show(args: argparse.Namespace) -> int:
@@ -780,30 +648,10 @@ def _update_status(firmware: dict[str, Any]) -> tuple[str, str | None]:
 
 async def cmd_firmware_show(args: argparse.Namespace) -> int:
     async with connect() as router:
-        firmware = await _latest_firmware(router, args.wait)
-        status, latest = _update_status(firmware)
-
-        lines = [f"Current    {firmware.get('current')}"]
-        if status == "update":
-            lines.append(f"Latest     {latest}   ** update available **")
-        elif status == "current":
-            lines.append(f"Latest     {latest}   (up to date)")
-        else:
-            lines.append(
-                "Latest     could not verify — the router got no answer from ASUS"
-            )
-        if firmware.get("state_beta"):
-            lines.append(f"Beta       {firmware.get('available_beta')}")
-
-        note = firmware.get("release_note")
-        if note and args.notes:
-            lines += ["", "Release note:", str(note)]
-        elif note and status == "update":
-            lines.append("\nRun `asuswrt firmware show --notes` for the release note.")
-        if status == "update":
-            lines.append(f"Upgrade with: asuswrt firmware upgrade --to {latest} --yes")
-
-        emit({**firmware, "status": status, "latest": latest}, lines, args.json)
+        firmware_data = await _latest_firmware(router, args.wait)
+        status, latest = _update_status(firmware_data)
+        payload = {**firmware_data, "status": status, "latest": latest}
+        emit(payload, render.firmware(payload, notes=args.notes), args.json)
     return EXIT_OK
 
 
