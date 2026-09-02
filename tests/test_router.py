@@ -8,7 +8,8 @@ import pytest
 
 from asusrouter.modules.port_forwarding import AsusPortForwarding, PortForwardingRule
 
-from asuswrt import cli, ops, render
+from asuswrt import ops
+from asuswrt.cli import main as cli, render
 from asuswrt.router import (
     ConfigError,
     RouterConfig,

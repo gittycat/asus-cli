@@ -20,7 +20,8 @@ from asusrouter.modules.parental_control import AsusParentalControl
 from asusrouter.modules.port_forwarding import AsusPortForwarding, PortForwardingRule
 from asusrouter.modules.wlan import AsusWLAN
 
-from asuswrt import ops, render
+from asuswrt import ops
+from asuswrt.cli import render
 from asuswrt.ops import (
     CPU_SAMPLE_SECONDS,
     FIRMWARE_CHECK_SECONDS,

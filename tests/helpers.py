@@ -25,7 +25,7 @@ from asusrouter.modules.firmware import WebsError, WebsUpdate, WebsUpgrade
 from asusrouter.modules.parental_control import AsusBlockAll, AsusParentalControl
 from asusrouter.modules.port_forwarding import AsusPortForwarding, PortForwardingRule
 
-from asuswrt import cli
+from asuswrt.cli import main as cli
 
 # What `writers.nvram(names)` produces: "nvram_get(a);nvram_get(b);".
 NVRAM_GET = re.compile(r"nvram_get\(([^)]+)\)")

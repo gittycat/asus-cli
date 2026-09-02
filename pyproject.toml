@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-asuswrt = "asuswrt.cli:main"
+asuswrt = "asuswrt.cli.main:main"
 asuswrt-probe = "asuswrt.probe:main"
 
 [build-system]
