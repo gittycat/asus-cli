@@ -1,0 +1,461 @@
+{
+  "mutate:firmware_upgrade:dry": {
+    "applied_pf_rules": null,
+    "exit_code": 3,
+    "services": [],
+    "states": [
+      [
+        "firmware_check",
+        {}
+      ]
+    ],
+    "stderr": "Would FLASH firmware 3.0.0.4.388.34098_g9b0c9ae over 3.0.0.4.388.34011_gfae8cb3.\n  The router downloads from ASUS, writes flash, then reboots.\n  Every connection in the house drops for several minutes.\n  Losing power while flash is being written can brick the router.\nRe-run with --yes to apply.\n",
+    "stdout": ""
+  },
+  "mutate:firmware_upgrade:yes": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [],
+    "states": [
+      [
+        "firmware_check",
+        {}
+      ],
+      [
+        "firmware_upgrade",
+        {}
+      ]
+    ],
+    "stderr": "",
+    "stdout": "Upgrade to 3.0.0.4.388.34098_g9b0c9ae requested.\nThe router reports no progress over this API. Expect 5-10 minutes of downtime, then confirm the new version with: asuswrt system show\n"
+  },
+  "mutate:guest_disable:dry": {
+    "applied_pf_rules": null,
+    "exit_code": 3,
+    "services": [],
+    "states": [],
+    "stderr": "Would turn guest network 5ghz_1 OFF\nRe-run with --yes to apply.\n",
+    "stdout": ""
+  },
+  "mutate:guest_disable:yes": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [],
+    "states": [
+      [
+        0,
+        {
+          "api_id": "1.1",
+          "api_type": "gwlan"
+        }
+      ]
+    ],
+    "stderr": "",
+    "stdout": "Applied: guest 5ghz_1 OFF\n"
+  },
+  "mutate:guest_enable:dry": {
+    "applied_pf_rules": null,
+    "exit_code": 3,
+    "services": [],
+    "states": [],
+    "stderr": "Would turn guest network 2ghz_1 ON\nRe-run with --yes to apply.\n",
+    "stdout": ""
+  },
+  "mutate:guest_enable:yes": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [],
+    "states": [
+      [
+        1,
+        {
+          "api_id": "0.1",
+          "api_type": "gwlan"
+        }
+      ]
+    ],
+    "stderr": "",
+    "stdout": "Applied: guest 2ghz_1 ON\n"
+  },
+  "mutate:parental_disable:dry": {
+    "applied_pf_rules": null,
+    "exit_code": 3,
+    "services": [],
+    "states": [],
+    "stderr": "Would turn parental control OFF\nRe-run with --yes to apply.\n",
+    "stdout": ""
+  },
+  "mutate:parental_disable:yes": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [],
+    "states": [
+      [
+        0,
+        {}
+      ]
+    ],
+    "stderr": "",
+    "stdout": "Applied: parental control OFF\n"
+  },
+  "mutate:parental_enable:dry": {
+    "applied_pf_rules": null,
+    "exit_code": 3,
+    "services": [],
+    "states": [],
+    "stderr": "Would turn parental control ON\nRe-run with --yes to apply.\n",
+    "stdout": ""
+  },
+  "mutate:parental_enable:yes": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [],
+    "states": [
+      [
+        1,
+        {}
+      ]
+    ],
+    "stderr": "",
+    "stdout": "Applied: parental control ON\n"
+  },
+  "mutate:pf_add:dry": {
+    "applied_pf_rules": null,
+    "exit_code": 3,
+    "services": [],
+    "states": [],
+    "stderr": "Would add rule 'Game': :27015 -> 192.168.50.40:27015 TCP\nRe-run with --yes to apply.\n",
+    "stdout": ""
+  },
+  "mutate:pf_add:yes": {
+    "applied_pf_rules": [
+      {
+        "ip_address": "192.168.50.20",
+        "ip_external": "",
+        "name": "Plex",
+        "port": "32400",
+        "port_external": "32400",
+        "protocol": "TCP"
+      },
+      {
+        "ip_address": "192.168.50.30",
+        "ip_external": "",
+        "name": "Web",
+        "port": "80",
+        "port_external": "8080",
+        "protocol": "TCP"
+      },
+      {
+        "ip_address": "192.168.50.40",
+        "ip_external": "",
+        "name": "Game",
+        "port": "27015",
+        "port_external": "27015",
+        "protocol": "TCP"
+      }
+    ],
+    "exit_code": 0,
+    "services": [],
+    "states": [],
+    "stderr": "",
+    "stdout": "Applied: add rule 'Game': :27015 -> 192.168.50.40:27015 TCP\n"
+  },
+  "mutate:pf_disable:dry": {
+    "applied_pf_rules": null,
+    "exit_code": 3,
+    "services": [],
+    "states": [],
+    "stderr": "Would turn port forwarding OFF globally\nRe-run with --yes to apply.\n",
+    "stdout": ""
+  },
+  "mutate:pf_disable:yes": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [],
+    "states": [
+      [
+        0,
+        {}
+      ]
+    ],
+    "stderr": "",
+    "stdout": "Applied: port forwarding OFF\n"
+  },
+  "mutate:pf_enable:dry": {
+    "applied_pf_rules": null,
+    "exit_code": 3,
+    "services": [],
+    "states": [],
+    "stderr": "Would turn port forwarding ON globally\nRe-run with --yes to apply.\n",
+    "stdout": ""
+  },
+  "mutate:pf_enable:yes": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [],
+    "states": [
+      [
+        1,
+        {}
+      ]
+    ],
+    "stderr": "",
+    "stdout": "Applied: port forwarding ON\n"
+  },
+  "mutate:pf_remove:dry": {
+    "applied_pf_rules": null,
+    "exit_code": 3,
+    "services": [],
+    "states": [],
+    "stderr": "Would remove 'Plex' (:32400 -> 192.168.50.20:32400)\nRe-run with --yes to apply.\n",
+    "stdout": ""
+  },
+  "mutate:pf_remove:yes": {
+    "applied_pf_rules": [
+      {
+        "ip_address": "192.168.50.30",
+        "ip_external": "",
+        "name": "Web",
+        "port": "80",
+        "port_external": "8080",
+        "protocol": "TCP"
+      }
+    ],
+    "exit_code": 0,
+    "services": [],
+    "states": [],
+    "stderr": "",
+    "stdout": "Applied: remove 'Plex' (:32400 -> 192.168.50.20:32400)\n"
+  },
+  "mutate:reboot:dry": {
+    "applied_pf_rules": null,
+    "exit_code": 3,
+    "services": [],
+    "states": [],
+    "stderr": "Would REBOOT the router (drops every connection for ~60 s)\nRe-run with --yes to apply.\n",
+    "stdout": ""
+  },
+  "mutate:reboot:yes": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [],
+    "states": [
+      [
+        "reboot",
+        {}
+      ]
+    ],
+    "stderr": "",
+    "stdout": "Reboot requested\n"
+  },
+  "mutate:wifi_country:dry": {
+    "applied_pf_rules": null,
+    "exit_code": 3,
+    "services": [],
+    "states": [],
+    "stderr": "Would set the 5ghz country code to AU\nRe-run with --yes to apply.\n",
+    "stdout": ""
+  },
+  "mutate:wifi_country:yes": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [
+      [
+        "restart_wireless",
+        {
+          "wl1_country_code": "AU"
+        }
+      ]
+    ],
+    "states": [],
+    "stderr": "",
+    "stdout": "Applied: set the 5ghz country code to AU\n  wl1_country_code       'AA' -> 'AU'\n"
+  },
+  "mutate:wifi_security:dry": {
+    "applied_pf_rules": null,
+    "exit_code": 3,
+    "services": [],
+    "states": [],
+    "stderr": "Would set both to wpa2wpa3 (auth_mode_x=psk2sae, crypto=aes, mfp=capable) \u2014 every wireless client reconnects\nRe-run with --yes to apply.\n",
+    "stdout": ""
+  },
+  "mutate:wifi_security:yes": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [
+      [
+        "restart_wireless",
+        {
+          "wl0_auth_mode_x": "psk2sae",
+          "wl0_crypto": "aes",
+          "wl0_mfp": "1",
+          "wl1_auth_mode_x": "psk2sae",
+          "wl1_crypto": "aes",
+          "wl1_mfp": "1"
+        }
+      ]
+    ],
+    "states": [],
+    "stderr": "",
+    "stdout": "Applied: set both to wpa2wpa3 (auth_mode_x=psk2sae, crypto=aes, mfp=capable) \u2014 every wireless client reconnects\n  wl0_auth_mode_x        'psk2' -> 'psk2sae'\n  wl0_crypto             'aes' -> 'aes'  (already set)\n  wl0_mfp                '0' -> '1'\n  wl1_auth_mode_x        'psk2' -> 'psk2sae'\n  wl1_crypto             'aes' -> 'aes'  (already set)\n  wl1_mfp                '0' -> '1'\n"
+  },
+  "mutate:wps_disable:dry": {
+    "applied_pf_rules": null,
+    "exit_code": 3,
+    "services": [],
+    "states": [],
+    "stderr": "Would turn WPS OFF on all bands\nRe-run with --yes to apply.\n",
+    "stdout": ""
+  },
+  "mutate:wps_disable:yes": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [
+      [
+        "restart_wireless",
+        {
+          "wps_enable": "0",
+          "wps_enable_x": "0",
+          "wps_multiband": "0"
+        }
+      ]
+    ],
+    "states": [],
+    "stderr": "",
+    "stdout": "Applied: turn WPS OFF on all bands\n  wps_enable             '1' -> '0'\n  wps_enable_x           '1' -> '0'\n  wps_multiband          '1' -> '0'\n"
+  },
+  "mutate:wps_enable:dry": {
+    "applied_pf_rules": null,
+    "exit_code": 3,
+    "services": [],
+    "states": [],
+    "stderr": "Would turn WPS ON on all bands (the WPS PIN exchange is brute-forceable)\nRe-run with --yes to apply.\n",
+    "stdout": ""
+  },
+  "mutate:wps_enable:yes": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [
+      [
+        "restart_wireless",
+        {
+          "wps_enable": "1",
+          "wps_enable_x": "1",
+          "wps_multiband": "1"
+        }
+      ]
+    ],
+    "states": [],
+    "stderr": "",
+    "stdout": "Applied: turn WPS ON on all bands (the WPS PIN exchange is brute-forceable)\n  wps_enable             '1' -> '1'  (already set)\n  wps_enable_x           '1' -> '1'  (already set)\n  wps_multiband          '1' -> '1'  (already set)\n"
+  },
+  "read:clients": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [],
+    "states": [],
+    "stderr": "",
+    "stdout": "NAME                     IP               TYPE           MAC                STATE\nBrother Printer          192.168.50.6     WLAN_2G        AA:BB:CC:00:00:02  online\niPad                     192.168.50.66    WLAN_5G        AA:BB:CC:00:00:01  online\nOld Laptop               192.168.50.99    WIRED          AA:BB:CC:00:00:03  offline\n\n2 online / 3 listed\n"
+  },
+  "read:clients_online": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [],
+    "states": [],
+    "stderr": "",
+    "stdout": "NAME                     IP               TYPE           MAC                STATE\nBrother Printer          192.168.50.6     WLAN_2G        AA:BB:CC:00:00:02  online\niPad                     192.168.50.66    WLAN_5G        AA:BB:CC:00:00:01  online\n\n2 online / 2 listed\n"
+  },
+  "read:firewall": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [],
+    "states": [],
+    "stderr": "",
+    "stdout": "Firewall          ON\nDoS protection    OFF\nLogging           ? ('none')\nWAN web access    OFF\nPort forwarding   OFF\nURL filter        OFF (0 entries)\nKeyword filter    OFF (0 entries)\nParental control  ON (0 rules, block_all=OFF)\n"
+  },
+  "read:firmware_show": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [],
+    "states": [
+      [
+        "firmware_check",
+        {}
+      ]
+    ],
+    "stderr": "",
+    "stdout": "Current    3.0.0.4.388.34011_gfae8cb3\nLatest     3.0.0.4.388.34098_g9b0c9ae   ** update available **\n\nRun `asuswrt firmware show --notes` for the release note.\nUpgrade with: asuswrt firmware upgrade --to 3.0.0.4.388.34098_g9b0c9ae --yes\n"
+  },
+  "read:guest_show": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [],
+    "states": [],
+    "stderr": "",
+    "stdout": "NETWORK      STATE    SSID\n2ghz_1       OFF      ASUS_CC_2G_Guest\n5ghz_1       ON       ASUS_CC_5G_Guest\n"
+  },
+  "read:nvram": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [],
+    "states": [],
+    "stderr": "",
+    "stdout": "wl0_country_code         'US'\nwl1_country_code         'AA'\n"
+  },
+  "read:parental_show": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [],
+    "states": [],
+    "stderr": "",
+    "stdout": "Parental control  ON\nBlock all         OFF\nRules             0\n"
+  },
+  "read:portforward_show": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [],
+    "states": [],
+    "stderr": "",
+    "stdout": "Port forwarding is ON (2 rule(s))\n\nNAME                 EXT      -> INTERNAL               PROTO\nPlex                 32400    -> 192.168.50.20:32400    TCP\nWeb                  8080     -> 192.168.50.30:80       TCP\n"
+  },
+  "read:show": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [],
+    "states": [],
+    "stderr": "",
+    "stdout": "SYSTEM\nModel      RT-AX59U\nFirmware   3.0.0.4.388.34011  (merlin=False)\nMAC        BC:FC:E7:00:00:01\nSerial     SERIAL123\nAiMesh     True\n\nHEALTH\nUptime     3 d 4 h\nCPU        3.5% over 2 cores\nRAM        53.0%  (271 / 512 MB)\nWAN        CONNECTED  ip=203.0.113.4\n\nINTERNET\nLink       CONNECTED\nIP         203.0.113.4\nUnit       0\nState      CONNECTED\nProtocol   dhcp\nGateway    203.0.113.1\nDNS        ['1.1.1.1', '1.0.0.1']\n\nCLIENTS\n2 online / 3 known   (full table: asuswrt clients)\n\nFIREWALL\nFirewall          ON\nDoS protection    OFF\nLogging           ? ('none')\nWAN web access    OFF\nPort forwarding   OFF\nURL filter        OFF (0 entries)\nKeyword filter    OFF (0 entries)\nParental control  ON (0 rules, block_all=OFF)\n\nPARENTAL CONTROL\nParental control  ON\nBlock all         OFF\nRules             0\n\nPORT FORWARDING\nPort forwarding is OFF (0 rule(s))\n\nGUEST WIFI\nNETWORK      STATE    SSID\n2ghz_1       OFF      ASUS_CC_2G_Guest\n5ghz_1       ON       ASUS_CC_5G_Guest\n\nWIRELESS\nWPS               ON  (wps_enable='1', multiband='1')\n\nBAND     RADIO   AUTH       CRYPTO   MFP        COUNTRY\n2ghz     ON      psk2       aes      disabled   US\n5ghz     ON      psk2       aes      disabled   AA\n\nFirmware update not checked. Run: asuswrt firmware show\n"
+  },
+  "read:system_health": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [],
+    "states": [],
+    "stderr": "",
+    "stdout": "Uptime     3 d 4 h\nCPU        3.5% over 2 cores\nRAM        53.0%  (271 / 512 MB)\nWAN        CONNECTED  ip=203.0.113.4\n"
+  },
+  "read:system_show": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [],
+    "states": [],
+    "stderr": "",
+    "stdout": "Model      RT-AX59U\nFirmware   3.0.0.4.388.34011  (merlin=False)\nMAC        BC:FC:E7:00:00:01\nSerial     SERIAL123\nAiMesh     True\n"
+  },
+  "read:wan": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [],
+    "states": [],
+    "stderr": "",
+    "stdout": "Link       CONNECTED\nIP         203.0.113.4\nUnit       0\nState      CONNECTED\nProtocol   dhcp\nGateway    203.0.113.1\nDNS        ['1.1.1.1', '1.0.0.1']\n"
+  },
+  "read:wifi_show": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [],
+    "states": [],
+    "stderr": "",
+    "stdout": "WPS               ON  (wps_enable='1', multiband='1')\n\nBAND     RADIO   AUTH       CRYPTO   MFP        COUNTRY\n2ghz     ON      psk2       aes      disabled   US\n5ghz     ON      psk2       aes      disabled   AA\n"
+  }
+}
