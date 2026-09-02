@@ -10,12 +10,12 @@ from an educated guess.
 |---|---|
 | `library` | Read from the `asusrouter` package source. Definitive for how this tool behaves. |
 | `hardware` | Observed on a live RT-AX59U, firmware `3.0.0.4.388.34011_gfae8cb3`. |
-| `unverified` | From general AsusWRT knowledge. Confirm with `asus-cli nvram get <var>` before relying on it. |
+| `unverified` | From general AsusWRT knowledge. Confirm with `asuswrt nvram get <var>` before relying on it. |
 
 Anything marked `unverified` can be promoted in one command:
 
 ```bash
-asus-cli nvram get fw_enable_x fw_dos_x        # empty result = wrong name for this firmware
+asuswrt nvram get fw_enable_x fw_dos_x        # empty result = wrong name for this firmware
 ```
 
 ---
@@ -100,7 +100,7 @@ Applying calls `restart_wireless;restart_firewall`.
 
 ### Wireless security — `hardware` for the reads, mixed for the writes
 
-Written by `asus-cli wifi wps|security|country`. All reads below were observed on
+Written by `asuswrt wifi wps|security|country`. All reads below were observed on
 an RT-AX59U; the write values are marked separately because accepting a write
 is not the same as the value sticking.
 
@@ -115,7 +115,7 @@ is not the same as the value sticking.
 | `wl<i>_country_code` | Regulatory region | `hardware` |
 
 `wps_enable` and `wps_enable_x` are both present and both `1` on a router with
-WPS on, so `asus-cli wifi wps` writes both — otherwise the radio and the web UI
+WPS on, so `asuswrt wifi wps` writes both — otherwise the radio and the web UI
 disagree about the state.
 
 `auth_mode_x` values, of which only `psk2` is confirmed on this firmware:
@@ -158,11 +158,11 @@ Both actions go through `AsusSystem`:
 Both are dispatched with `service=None` and `expect_modify=False`
 (`system.py::STATE_MAP`), so `async_set_state` returns True as soon as the
 request is sent. **It is not evidence that anything happened.** The check is
-asynchronous with no completion signal, which is why `asus-cli firmware`
+asynchronous with no completion signal, which is why `asuswrt firmware`
 sleeps before re-reading; the upgrade reports nothing at all, which is why
-`asus-cli firmware upgrade` says "requested" and points at `asus-cli system`.
+`asuswrt firmware upgrade` says "requested" and points at `asuswrt system`.
 
-`asus-cli firmware` runs the check every time rather than reporting the
+`asuswrt firmware` runs the check every time rather than reporting the
 stored value, because `webs_state_info` is refreshed only by the router's own
 periodic check and `webs_update_enable` is `0` by default — the stored version
 can be arbitrarily old.
@@ -220,7 +220,7 @@ Not covered by any library data type; the CLI reads them straight from nvram.
 | `keyword_enable_x` | Keyword filter on/off |
 | `keyword_rulelist` | Keyword filter entries |
 
-If `asus-cli firewall` shows `? (None)` for one of these, the name is wrong for
+If `asuswrt firewall` shows `? (None)` for one of these, the name is wrong for
 this firmware. Find the real one by changing the setting in the web UI and
 diffing `nvram show` over SSH — see the README section on extending coverage.
 Promote the entry to `hardware` once you have confirmed it.
@@ -249,10 +249,10 @@ The HTTP API exposes a generic nvram read. This is the same mechanism the
 library uses to collect device identity, so it is as reliable as the rest:
 
 ```bash
-asus-cli --json nvram vts_rulelist wl0.1_bss_enabled fw_enable_x
+asuswrt --json nvram vts_rulelist wl0.1_bss_enabled fw_enable_x
 ```
 
-`asus-cli nvram` has deliberately no write counterpart. Blind nvram writes are
+`asuswrt nvram` has deliberately no write counterpart. Blind nvram writes are
 the fastest way to brick a working configuration, so every write this tool can
 perform is exposed as a named command with its own validation — `pf`, `guest`,
 `parental` and `wifi`. `router.apply_nvram` is the shared implementation: it

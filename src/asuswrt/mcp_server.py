@@ -35,6 +35,7 @@ import os
 import sys
 import time
 from collections.abc import Awaitable, Callable
+from importlib.metadata import version
 from typing import Annotated, Any, Literal
 
 from asusrouter import AsusData, AsusRouterError
@@ -674,7 +675,7 @@ def build_server(*, allow_writes: bool = False, allow_dangerous: bool = False) -
     is what makes this testable without env-var/reload gymnastics: tests
     build a server per gate combination and inspect it directly.
     """
-    server = MCPServer("asuswrt")
+    server = MCPServer("asuswrt", version=version("asuswrt"))
     for fn, annotations in READS:
         server.add_tool(fn, annotations=annotations)
     if allow_writes:

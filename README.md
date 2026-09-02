@@ -8,7 +8,7 @@
 > loaded to minimise context use. That's what CC and Codex do as of Aug 2026
 > instead of loading the full schema in context.
 >
-> Both include a custom python tool, **asus-cli**, to connect to a home ASUS (AsusWRT) router.  The tool can be used manually but it aimed at AI agents. As such,a few railguards and utilities were built in such as not including direct nvram set, including json output everywhere, using guessable non-verb grammar, and requiring confirmation for any config change
+> Both include a custom python tool, **asuswrt**, to connect to a home ASUS (AsusWRT) router.  The tool can be used manually but it aimed at AI agents. As such,a few railguards and utilities were built in such as not including direct nvram set, including json output everywhere, using guessable non-verb grammar, and requiring confirmation for any config change
 
 The MCP and SKILL are loaded into the context when you write **asus router** in
 your prompt. The word "router" alone is way too generic in a tech context.
@@ -17,7 +17,7 @@ for unrelated requests. Once loaded, the model doesn't need the asus hint.
 It'll use the skill for requests such as
 `who's on my WiFi?` or `what devices are on my home network?`
 
-This `aus-cli` python tool uses the unpublished HTTP API of the ASUS router.
+This `asuswrt` python tool uses the unpublished HTTP API of the ASUS router.
 This is the same API used by the official ASUS iOS app.
 
 ## Router Params that can be Read
@@ -45,47 +45,54 @@ This is the same API used by the official ASUS iOS app.
 
 You need [uv](https://docs.astral.sh/uv/) and your router's admin password.
 
-**1. Install the CLI program that the skill will drive**
+**1. Install the program that the skill and the MCP server both drive**
 
 ```bash
-uv tool install git+https://github.com/gittycat/asus-cli
+uv tool install "asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-tools"
 ```
 
 OR ...  
  from a local git clone, which also builds the wheel for you:
 
 ```bash
-git clone https://github.com/gittycat/asus-cli
-uv tool install ./asus-cli --force
+git clone https://github.com/gittycat/asuswrt-tools
+uv tool install "./asuswrt-tools[mcp]" --force
 ```
 
-Either way `uv` puts the `asus-cli` command in `~/.local/bin`; run
-`uv tool update-shell` once if that directory is not on your `PATH`.
+The `[mcp]` extra pulls in the MCP SDK and is what makes the `asuswrt-mcp`
+command work. Leave it off and you get the CLI only — `asuswrt-mcp` will still
+be on your `PATH` but will exit with `ModuleNotFoundError: No module named
+'mcp'`. (`uv tool install` has no `--extra` flag; the extra goes inside the
+requirement string, as above.)
+
+Either way `uv` puts `asuswrt`, `asuswrt-mcp` and `asuswrt-probe` in
+`~/.local/bin`; run `uv tool update-shell` once if that directory is not on
+your `PATH`.
 
 **2. Save your router credentials**
 
 ```bash
-mkdir -p ~/.config/asus-cli
-cat > ~/.config/asus-cli/.env <<'EOF'
+mkdir -p ~/.config/asuswrt
+cat > ~/.config/asuswrt/.env <<'EOF'
 ROUTER_HOST=192.168.50.1
 ROUTER_USER=admin
 ROUTER_PASS=your-router-password
 EOF
 
-asus-cli system    # should print your model, firmware and MAC
+asuswrt system    # should print your model, firmware and MAC
 ```
 
 **3. Install the skill**
 
 ```bash
 # Claude Code
-claude plugin marketplace add gittycat/asus-cli
-claude plugin install asus-cli@asus-cli -y
+claude plugin marketplace add gittycat/asuswrt-tools
+claude plugin install asuswrt@asuswrt -y
 
 # Codex
 mkdir -p ~/.agents/skills
-git clone --depth 1 https://github.com/gittycat/asus-cli /tmp/ars \
-  && cp -r /tmp/ars/skills/asus-cli ~/.agents/skills/ && rm -rf /tmp/ars
+git clone --depth 1 https://github.com/gittycat/asuswrt-tools /tmp/ars \
+  && cp -r /tmp/ars/skills/asuswrt ~/.agents/skills/ && rm -rf /tmp/ars
 ```
 
 ## Sample Usage
@@ -105,7 +112,7 @@ Open port 32400 on the asus for my media server
 **NOT TESTED**
 
 **Any other Agent Skills host** — Cursor, Gemini CLI, GitHub Copilot, VS Code,
-Goose, Junie — reads the same `skills/asus-cli` folder from its own skills
+Goose, Junie — reads the same `skills/asuswrt` folder from its own skills
 directory. Check your agent's docs for the path; the skill needs no changes.
 
 **Claude Code, one clone with the source included.** Cloning into your skills
@@ -113,53 +120,51 @@ directory registers it as a plugin *and* gives you something to install the CLI
 from:
 
 ```bash
-git clone https://github.com/gittycat/asus-cli ~/.claude/skills/asus-cli
-uv tool install ~/.claude/skills/asus-cli --force
+git clone https://github.com/gittycat/asuswrt-tools ~/.claude/skills/asuswrt
+uv tool install ~/.claude/skills/asuswrt --force
 ```
 
 **Claude Code, one session only**, while editing a local checkout:
 
 ```bash
-claude --plugin-dir /path/to/asus-cli
+claude --plugin-dir /path/to/asuswrt-tools
 ```
 
 Do not combine these with the marketplace install — the skill would load twice
 under two identities.
 
-**Updating:** `claude plugin marketplace update asus-cli`, or
+**Updating:** `claude plugin marketplace update asuswrt`, or
 `git pull` in the clone.
 
 **Config lookup order**, first match wins:
 
-1. `$ASUS_ENV_FILE`, if you set it
+1. `$ASUSWRT_ENV_FILE`, if you set it
 2. `.env` in the current directory
-3. `~/.config/asus-cli/.env`
+3. `~/.config/asuswrt/.env`
 
-Older config directories (`~/.config/asus-skill`, `~/.config/asus-router`) are
-still read after those, so an existing install keeps working after the rename.
+Those three, in that order, and nothing else. The MCP server reads the same
+file from the same places.
 
-`env.example` is a starting template. If `asus-cli system` gives a login error, check
+`env.example` is a starting template. If `asuswrt system` gives a login error, check
 that your account is the router **admin**, not a limited family member.
 
-</details>
+## asuswrt tool
 
-## asus-cli tool
-
-You can call the asus-cli tool works on its own, without an agent:
+You can call the asuswrt tool works on its own, without an agent:
 
 ```bash
-asus-cli show                    # all of the below in one connection
-asus-cli system                  # model, firmware, mac, aimesh
-asus-cli system health           # uptime, cpu, ram, wan
-asus-cli clients --online        # who's connected
-asus-cli wan                     # ip, gateway, dns, protocol
-asus-cli firewall                # firewall + filters + parental control
-asus-cli parental                # parental control state and rules
-asus-cli portforward             # port forwarding switch and rules
-asus-cli guest                   # guest networks
-asus-cli wifi                    # wps, wpa mode, frame protection, country
-asus-cli firmware --notes        # installed vs offered version, release note
-asus-cli nvram get vts_rulelist  # any raw setting
+asuswrt show                    # all of the below in one connection
+asuswrt system                  # model, firmware, mac, aimesh
+asuswrt system health           # uptime, cpu, ram, wan
+asuswrt clients --online        # who's connected
+asuswrt wan                     # ip, gateway, dns, protocol
+asuswrt firewall                # firewall + filters + parental control
+asuswrt parental                # parental control state and rules
+asuswrt portforward             # port forwarding switch and rules
+asuswrt guest                   # guest networks
+asuswrt wifi                    # wps, wpa mode, frame protection, country
+asuswrt firmware --notes        # installed vs offered version, release note
+asuswrt nvram get vts_rulelist  # any raw setting
 ```
 
 Add `--json` to any of them for machine-readable output.
@@ -167,12 +172,105 @@ Add `--json` to any of them for machine-readable output.
 Changing things takes two steps by design:
 
 ```bash
-asus-cli portforward add --name Plex --port 32400 --to-ip 192.168.50.20
+asuswrt portforward add --name Plex --port 32400 --to-ip 192.168.50.20
 # → prints what it would do, changes nothing, exits 3
 
-asus-cli portforward add --name Plex --port 32400 --to-ip 192.168.50.20 --yes
+asuswrt portforward add --name Plex --port 32400 --to-ip 192.168.50.20 --yes
 # → applies it
 ```
+
+---
+
+## MCP server
+
+`asuswrt-mcp` speaks MCP over **stdio** — the host starts it as a child
+process. There is no HTTP transport and no network listener; see
+[ROADMAP.md](ROADMAP.md) for what it would take to add one.
+
+It shares exactly one module with the CLI: `ops.py`, the domain operations. It
+does not import the CLI at all, and a test enforces that — on stdio, stdout
+*is* the JSON-RPC channel, so a single stray `print` would kill the connection.
+
+### Two gates
+
+Read tools are always available. Everything else is off unless you say
+otherwise:
+
+| Environment variable | Adds |
+| --- | --- |
+| *(none)* | 12 read tools |
+| `ASUSWRT_MCP_ALLOW_WRITES=1` | + 8 write tools |
+| `ASUSWRT_MCP_ALLOW_DANGEROUS=1` | + `reboot_router`, `upgrade_firmware` — **also needs the writes gate**; on its own it does nothing |
+
+The gates *hide* tools rather than reject calls, so a tool you have not enabled
+costs no context and cannot be retried into working. **They are read once at
+startup** — change one and restart the server, or the host, for it to take
+effect.
+
+### Tools
+
+```
+reads (always)       get_overview  get_system  get_health  get_wan
+                     list_clients  get_firewall_and_filters
+                     get_parental_control  list_port_forwards
+                     list_guest_networks  get_wireless
+                     check_firmware_update  get_nvram
+
+writes (gate 1)      add_port_forward  remove_port_forward
+                     set_port_forwarding_enabled  set_parental_control_enabled
+                     set_guest_network_enabled  set_wps_enabled
+                     set_wifi_security  set_wifi_country
+
+dangerous (both)     reboot_router  upgrade_firmware
+```
+
+Start with `get_overview` — it is a summary (client *counts*, no firmware
+check, no raw nvram) and costs one login. `check_firmware_update` makes the
+router contact ASUS and takes about 5 seconds.
+
+### Every write is two calls
+
+Write tools take `confirm: bool = False`, and without it they **change
+nothing**:
+
+```jsonc
+// confirm omitted → preview only
+{"status": "preview", "applied": false,
+ "change": "…one sentence…", "warnings": ["…"], "current": {…}}
+
+// confirm: true → applied, with before/after for nvram writes
+{"status": "applied", "applied": true, …}
+```
+
+This is the CLI's dry-run-then-`--yes` rule, kept because it cannot be
+delegated to the host: the MCP spec says tool annotations are *hints*, and some
+hosts auto-approve. `upgrade_firmware` additionally requires `to` — the exact
+version string from `check_firmware_update` — so nothing ever flashes whatever
+happened to turn up.
+
+### Client configuration
+
+**Claude Code:** installing the plugin registers the server for you; nothing to
+configure. Add the gates in your settings if you want writes.
+
+**Anything else** — Claude Desktop, or any MCP host with a JSON config:
+
+```json
+{
+  "mcpServers": {
+    "asuswrt": {
+      "command": "asuswrt-mcp",
+      "env": {
+        "ASUSWRT_MCP_ALLOW_WRITES": "1"
+      }
+    }
+  }
+}
+```
+
+Use the absolute path (`~/.local/bin/asuswrt-mcp`) if the host does not
+inherit your shell `PATH` — GUI apps usually do not. Drop the `env` block for a
+read-only server, which is the recommended default.
 
 ---
 
@@ -200,6 +298,11 @@ What it covers:
 | `test_router.py` | Config loading, nvram read/write, serialisation helpers |
 | `test_firmware.py` | Version reporting, the online check, and the flash guards |
 | `test_confirmation.py` | The consent matrix: `--yes`, terminal prompt, exit 3 |
+| `test_ops.py` | Each domain operation's payload, and that it survives JSON |
+| `test_golden.py` | Byte-exact output of every read and mutation, against `golden.json` |
+| `test_mcp_tools.py` | Which tools each gate registers, and every preview/apply path |
+| `test_mcp_stdio.py` | A real `asuswrt-mcp` subprocess: clean JSON-RPC on stdout |
+| `test_layering.py` | MCP never imports the CLI; `ops`/`router` never print |
 
 ---
 
@@ -212,12 +315,12 @@ the tool rather than in the instructions.
   `[y/N]` prompt; with neither, the command prints what it would do and exits
   3 without touching anything. Silence never means yes, so a bare mutating
   command is a safe dry run.
-- **No raw writes.** `asus-cli nvram get` reads any setting; there is deliberately no
+- **No raw writes.** `asuswrt nvram get` reads any setting; there is deliberately no
   write counterpart. Blind nvram writes are how working configurations get
   destroyed. Only reviewed, named operations can write.
 - **Writes are verified, not assumed.** The router reporting that it ran the
   service does not mean the value stuck — a country code write is routinely
-  accepted and then ignored. Every `asus-cli wifi` command reads the variables back
+  accepted and then ignored. Every `asuswrt wifi` command reads the variables back
   and prints `before -> after`, exiting non-zero if anything did not change.
 - **Duplicate port detection.** Adding a rule for an external port that is
   already forwarded fails unless you pass `--force`.
@@ -231,7 +334,7 @@ Tested on a ASUS RT-AX59U with `3.0.0.4` (stock, not Merlin) and `asusrouter` py
 
 Other AsusWRT routers should work — the library lists 27 confirmed models
 across WiFi 4 through WiFi 7, on stock and Merlin firmware — but the
-specifics in [`settings.md`](skills/asus-cli/reference/settings.md) were
+specifics in [`settings.md`](skills/asuswrt/reference/settings.md) were
 confirmed on an RT-AX59U. Two data types (`system`, `temperature`) return
 nothing on this model and are simply not used.
 
@@ -279,7 +382,7 @@ standing answer from the Asuswrt-Merlin community is that
 [there is no documentation](https://www.snbforums.com/threads/documentation-for-nvram-variables.74894/)
 and the only real source is `router/shared/defaults.c` in the GPL source drop.
 That gap is why this repository ships its own
-[settings reference](skills/asus-cli/reference/settings.md) with provenance
+[settings reference](skills/asuswrt/reference/settings.md) with provenance
 labels instead of pretending to be authoritative.
 
 **Firmware options.** There is no Asuswrt-Merlin build for the RT-AX59U;
@@ -296,8 +399,9 @@ that any Agent Skills host can load.
 
 ### Sources — the agent side
 
-The choice to ship a **CLI plus a Skill**, rather than an MCP server, follows
-current guidance from both vendors:
+This ships **three surfaces over one set of operations** — a CLI, an Agent
+Skill that documents it, and an MCP server. That shape follows current guidance
+from both vendors:
 
 - [Agent Skills standard](https://agentskills.io) — the open specification.
   Developed by Anthropic, released as an open standard, and implemented by
@@ -322,19 +426,26 @@ current guidance from both vendors:
   — `marketplace.json` schema and the `marketplace add` / `plugin install` flow
   in the install section above.
 
-The short version: the router is a local system reachable by a local library.
-A skill that documents a CLI costs ~100 tokens until someone mentions their
-router, whereas an MCP server announces its whole tool surface at startup — and
-the skill runs in every compatible agent rather than one vendor's.
+The short version: the skill is the **guidance** — when to act, what to warn
+about, which questions are already settled. MCP is the preferred **execution**
+surface wherever the host has it, because the argument schemas are typed and
+validated before anything runs and each tool gets its own permission prompt
+rather than one coarse "allow this command". The CLI is what both fall back to,
+and the only option in a shell.
 
-**When an MCP server would be the better choice.** If you want this in a host
-with no shell — Claude Desktop, claude.ai, ChatGPT connectors — a skill cannot
-help, because there is nothing to run the CLI. MCP also gives typed argument
-schemas validated before execution, per-tool permission prompts instead of one
-coarse "allow this command", and a single remote deployment serving many
-clients rather than an install on every machine. The two are not exclusive:
-an MCP server would be a thin wrapper over the same functions in
-`src/asus_cli/router.py`.
+Which one you get depends on the host:
+
+| Host | What it can use |
+| --- | --- |
+| Claude Code, Codex | Skill for guidance, MCP tools for execution, CLI as fallback |
+| Any other Agent Skills host | Skill + CLI — the same `skills/asuswrt` folder |
+| Claude Desktop, claude.ai, ChatGPT connectors | MCP only — there is no shell to run a CLI in |
+| A terminal, no agent | CLI |
+
+Neither surface costs much when idle. The skill's metadata is ~100 tokens until
+someone mentions their router; the MCP server's read tools are the only ones
+registered unless you open a gate. And they cannot drift apart: both call the
+same `ops.py`, which is the one module they share.
 
 ### Discovered by testing, not from any source
 
@@ -348,7 +459,7 @@ afterwards. They are called out because they are not written down anywhere:
    `KeyError` on a router that has no rules yet. This tool builds the rule list
    itself and calls `async_apply_port_forwarding_rules` to avoid that path.
 2. **One CPU sample is never enough.** `usage` is computed against the previous
-   sample, so a single fetch always returns `None`. `asus-cli system health` samples twice,
+   sample, so a single fetch always returns `None`. `asuswrt system health` samples twice,
    two seconds apart.
 3. **`client.state` is not the online flag.** `ConnectionState` is an `IntEnum`
    where `CONNECTED = 1`; comparing it to a string silently reports every device
@@ -357,24 +468,30 @@ afterwards. They are called out because they are not written down anywhere:
 The port forwarding helpers are additionally marked *legacy, "not tested, not
 used, not documented"* in the library source, with a note that they may be
 removed ([issue #611](https://github.com/Vaskivskyi/asusrouter/issues/611)).
-They are confined to `src/asus_cli/router.py` and the two `pf` commands so a
-breaking change stays a one-file fix.
+They are confined to `src/asuswrt/router.py` and the port-forwarding
+operations in `src/asuswrt/ops.py`, so a breaking change stays a two-file fix
+no matter which surface hits it.
 
 ---
 
 ## Limitations
 
+- **Stateless.** Every command and every MCP tool call logs in, does its work,
+  and logs out — about a second of overhead each. Fine for a person or an
+  agent asking a few things; wrong for polling.
+- **Not a service.** Built for one user and one router. Calls are serialised,
+  not pooled. Do not put it behind a web app or share it between users.
+- **One router per config.** `ROUTER_HOST` is a single address; AiMesh nodes
+  are not addressed individually.
 - **Read-only for content filtering.** URL and keyword filter rules can be read
   but not written. The variable names for them are `unverified` — if
-  `asus-cli firewall` shows `? (None)`, that name is wrong for your firmware.
+  `asuswrt firewall` shows `? (None)`, that name is wrong for your firmware.
 - **Parental control is a global switch.** Per-device rules need the web UI.
 - **Limited wireless control.** WPS, WPA mode, frame protection and country
   code are settable; SSID, password, channel and bandwidth are not.
 - **Country code may be locked.** Stock firmware often derives it from the
   hardware SKU and silently ignores the write. The command tells you when
   that happens; the fix is the web UI.
-- **AiMesh nodes are not addressed individually.** Everything applies to the
-  main router.
 - **A firmware update can break this.** Nothing here is a supported API.
 
 ## Extending coverage
@@ -389,7 +506,8 @@ diff before.txt after.txt
 ```
 
 The diff names the variable and shows its encoding. Add it to `FIREWALL_VARS`
-in `src/asus_cli/cli.py` to read it, and to the settings reference with a
+in `src/asuswrt/ops.py` to read it — the CLI and the MCP server both pick it up
+from there — and to the settings reference with a
 `hardware` label. SSH is enabled in the web UI under
 *Administration → System → Service → Enable SSH* — it is not exposed in the
 mobile app.
