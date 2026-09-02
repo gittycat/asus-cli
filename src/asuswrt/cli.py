@@ -15,44 +15,27 @@ import json
 import sys
 from typing import Any
 
-from asusrouter import AsusData, AsusRouterError
+from asusrouter import AsusRouterError
 from asusrouter.modules.parental_control import AsusParentalControl
 from asusrouter.modules.port_forwarding import AsusPortForwarding, PortForwardingRule
-from asusrouter.modules.system import AsusSystem
 from asusrouter.modules.wlan import AsusWLAN
 
-from asuswrt import render
-from asuswrt.router import (
-    ConfigError,
-    apply_nvram,
-    connect,
-    enum_name,
-    jsonable,
-    port_forwarding_rules,
-    read_nvram,
+from asuswrt import ops, render
+from asuswrt.ops import (
+    CPU_SAMPLE_SECONDS,
+    FIRMWARE_CHECK_SECONDS,
+    MFP_NAMES,
+    MFP_VALUES,
+    WIFI_VARS,
+    WPA_MODES,
+    _bands,
 )
-
-# Seconds between the two CPU samples needed to compute a usage delta.
-CPU_SAMPLE_SECONDS = 2.0
+from asuswrt.router import ConfigError, connect, jsonable, port_forwarding_rules
 
 EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_CONFIG = 2
 EXIT_NEEDS_CONFIRM = 3
-
-# Firewall settings that have no dedicated data type in the library and are
-# therefore read straight from nvram. Names verified against a live RT-AX59U.
-FIREWALL_VARS = [
-    "fw_enable_x",
-    "fw_dos_x",
-    "fw_log_x",
-    "misc_http_x",
-    "vts_enable_x",
-    "url_enable_x",
-    "url_rulelist",
-    "keyword_enable_x",
-    "keyword_rulelist",
-]
 
 
 def emit(payload: Any, lines: list[str], as_json: bool) -> None:
@@ -128,108 +111,31 @@ def needs_confirm(args: argparse.Namespace, description: str) -> bool:
 # --------------------------------------------------------------------------
 
 
-async def _system_show(router: Any) -> tuple[dict[str, Any], list[str]]:
-    """Identity: what the router is. None of it changes until a reboot or a flash."""
-    identity = await router.async_get_identity()
-    payload = {
-        "model": identity.model,
-        "product_id": identity.product_id,
-        "firmware": str(identity.firmware),
-        "merlin": identity.merlin,
-        "mac": identity.mac,
-        "serial": identity.serial,
-        "aimesh": identity.aimesh,
-        "services": len(identity.services or []),
-    }
-    return payload, render.system(payload)
-
-
-async def _system_health(router: Any, cpu_sample: float) -> tuple[dict[str, Any], list[str]]:
-    """Live load: everything that moves while the router is running."""
-    # CPU usage is a delta between two samples, so one fetch always
-    # yields usage=None (hook.py::process_cpu). Take a second sample.
-    await router.async_get_data(AsusData.CPU)
-    await asyncio.sleep(cpu_sample)
-    cpu = await router.async_get_data(AsusData.CPU, force=True) or {}
-    ram = await router.async_get_data(AsusData.RAM) or {}
-    wan = await router.async_get_data(AsusData.WAN) or {}
-    boottime = await router.async_get_data(AsusData.BOOTTIME) or {}
-
-    internet = wan.get("internet", {}) if isinstance(wan, dict) else {}
-    hours = int(boottime.get("uptime", 0)) // 3600
-    cpu_total = (cpu.get("total") or {}).get("usage")
-    cores = {k: (v or {}).get("usage") for k, v in cpu.items() if k != "total"}
-
-    payload = {
-        "uptime_hours": hours,
-        "cpu_usage": cpu_total,
-        "cpu_cores": cores,
-        "ram": ram,
-        "wan_link": enum_name(internet.get("link")),
-        "wan_ip": internet.get("ip_address"),
-    }
-    return payload, render.health(payload)
-
-
-async def _wan_show(router: Any) -> tuple[dict[str, Any], list[str]]:
-    wan = await router.async_get_data(AsusData.WAN) or {}
-    return wan, render.wan(wan)
-
-
-async def _client_rows(router: Any, online_only: bool = False) -> list[dict[str, Any]]:
-    clients = await router.async_get_data(AsusData.CLIENTS) or {}
-    rows = []
-    for mac, client in clients.items():
-        conn = getattr(client, "connection", None)
-        desc = getattr(client, "description", None)
-        online = bool(getattr(conn, "online", False))
-        if online_only and not online:
-            continue
-        rows.append(
-            {
-                "mac": mac,
-                "name": getattr(desc, "name", None),
-                "vendor": getattr(desc, "vendor", None),
-                "ip": getattr(conn, "ip_address", None),
-                "type": enum_name(getattr(conn, "type", None)),
-                "guest": getattr(conn, "guest", None),
-                "online": online,
-            }
-        )
-    rows.sort(key=lambda r: (not r["online"], r["name"] or r["mac"]))
-    return rows
-
-
-# --------------------------------------------------------------------------
-# Read commands
-# --------------------------------------------------------------------------
-
-
 async def cmd_system_show(args: argparse.Namespace) -> int:
     async with connect() as router:
-        payload, lines = await _system_show(router)
-        emit(payload, lines, args.json)
+        payload = await ops.system(router)
+        emit(payload, render.system(payload), args.json)
     return EXIT_OK
 
 
 async def cmd_system_health(args: argparse.Namespace) -> int:
     async with connect() as router:
-        payload, lines = await _system_health(router, args.cpu_sample)
-        emit(payload, lines, args.json)
+        payload = await ops.health(router, args.cpu_sample)
+        emit(payload, render.health(payload), args.json)
     return EXIT_OK
 
 
 async def cmd_clients(args: argparse.Namespace) -> int:
     async with connect() as router:
-        rows = await _client_rows(router, args.online)
+        rows = await ops.clients(router, args.online)
         emit(rows, render.client_lines(rows), args.json)
     return EXIT_OK
 
 
 async def cmd_wan(args: argparse.Namespace) -> int:
     async with connect() as router:
-        payload, lines = await _wan_show(router)
-        emit(payload, lines, args.json)
+        payload = await ops.wan(router)
+        emit(payload, render.wan(payload), args.json)
     return EXIT_OK
 
 
@@ -245,64 +151,36 @@ async def cmd_show(args: argparse.Namespace) -> int:
     upgrade") that is not part of a status sweep.
     """
     async with connect() as router:
-        sections: list[tuple[str, str, Any, list[str]]] = []
+        payloads = await ops.overview(router, args.cpu_sample, False, args.wait)
 
-        payload, lines = await _system_show(router)
-        sections.append(("SYSTEM", "system", payload, lines))
-
-        payload, lines = await _system_health(router, args.cpu_sample)
-        sections.append(("HEALTH", "health", payload, lines))
-
-        payload, lines = await _wan_show(router)
-        sections.append(("INTERNET", "wan", payload, lines))
-
-        rows = await _client_rows(router)
-        online = sum(r["online"] for r in rows)
-        sections.append(
+        sections: list[tuple[str, str, Any, list[str]]] = [
+            ("SYSTEM", "system", payloads["system"], render.system(payloads["system"])),
+            ("HEALTH", "health", payloads["health"], render.health(payloads["health"])),
+            ("INTERNET", "wan", payloads["wan"], render.wan(payloads["wan"])),
             (
-                "CLIENTS",
-                "clients",
-                {"online": online, "known": len(rows)},
-                [
-                    f"{online} online / {len(rows)} known"
-                    "   (full table: asuswrt clients)"
-                ],
-            )
-        )
-
-        payload, lines = await _firewall_show(router)
-        sections.append(("FIREWALL", "firewall", payload, lines))
-
-        payload, lines = await _parental_show(router)
-        sections.append(("PARENTAL CONTROL", "parental", payload, lines))
-
-        payload, lines = await _pf_show(router)
-        sections.append(("PORT FORWARDING", "port_forwarding", payload, lines))
-
-        payload, lines = await _guest_show(router)
-        sections.append(("GUEST WIFI", "guest", payload, lines))
-
-        payload, lines = await _wifi_show(router)
-        sections.append(("WIRELESS", "wifi", payload, lines))
+                "CLIENTS", "clients", payloads["clients"],
+                render.overview_clients(payloads["clients"]),
+            ),
+            (
+                "FIREWALL", "firewall", payloads["firewall"],
+                render.firewall(payloads["firewall"]),
+            ),
+            (
+                "PARENTAL CONTROL", "parental", payloads["parental"],
+                render.parental(payloads["parental"]),
+            ),
+            (
+                "PORT FORWARDING", "port_forwarding", payloads["port_forwarding"],
+                render.port_forwarding(payloads["port_forwarding"]),
+            ),
+            ("GUEST WIFI", "guest", payloads["guest"], render.guest(payloads["guest"])),
+            ("WIRELESS", "wifi", payloads["wifi"], render.wifi(payloads["wifi"])),
+        ]
 
         if args.firmware:
-            firmware = await _latest_firmware(router, args.wait)
-            status, latest = _update_status(firmware)
-            lines = [f"Current    {firmware.get('current')}"]
-            if status == "update":
-                lines.append(f"Latest     {latest}   ** update available **")
-            elif status == "current":
-                lines.append(f"Latest     {latest}   (up to date)")
-            else:
-                lines.append("Latest     could not verify")
-            sections.append(
-                (
-                    "FIRMWARE",
-                    "firmware",
-                    {**firmware, "status": status, "latest": latest},
-                    lines,
-                )
-            )
+            async with progress("Asking the router to check with ASUS"):
+                fw = await ops.firmware(router, args.wait)
+            sections.append(("FIRMWARE", "firmware", fw, render.overview_firmware(fw)))
 
         out = render.overview(sections, firmware_checked=args.firmware)
         emit({key: payload for _, key, payload, _ in sections}, out, args.json)
@@ -314,17 +192,10 @@ async def cmd_show(args: argparse.Namespace) -> int:
 # --------------------------------------------------------------------------
 
 
-async def _pf_show(router: Any) -> tuple[dict[str, Any], list[str]]:
-    data = await router.async_get_data(AsusData.PORT_FORWARDING) or {}
-    rules = await port_forwarding_rules(router)
-    payload = {"state": enum_name(data.get("state")), "rules": rules}
-    return payload, render.port_forwarding(payload)
-
-
 async def cmd_pf_show(args: argparse.Namespace) -> int:
     async with connect() as router:
-        payload, lines = await _pf_show(router)
-        emit(payload, lines, args.json)
+        payload = await ops.port_forwarding(router)
+        emit(payload, render.port_forwarding(payload), args.json)
     return EXIT_OK
 
 
@@ -345,46 +216,22 @@ async def cmd_pf_add(args: argparse.Namespace) -> int:
         return EXIT_NEEDS_CONFIRM
 
     async with connect() as router:
-        current = await port_forwarding_rules(router)
-        clash = [
-            r
-            for r in current
-            if r.port_external == rule.port_external and r.protocol == rule.protocol
-        ]
-        if clash and not args.force:
-            print(
-                f"External port {rule.port_external}/{rule.protocol} is already "
-                f"forwarded to {clash[0].ip_address}:{clash[0].port}. "
-                "Use --force to add anyway.",
-                file=sys.stderr,
-            )
+        try:
+            result = await ops.port_forward_add(router, rule, force=args.force)
+        except ValueError as e:
+            print(str(e), file=sys.stderr)
             return EXIT_ERROR
 
-        # Build the full list ourselves and apply it in one write. The whole
-        # rule list is a single nvram string, so this is read-modify-write.
-        ok = await router.async_apply_port_forwarding_rules([*current, rule])
-        print(f"{'Applied' if ok else 'FAILED'}: {description}")
-
-        data = await router.async_get_data(AsusData.PORT_FORWARDING, force=True) or {}
-        if data.get("state") == AsusPortForwarding.OFF:
+        print(f"{'Applied' if result['applied'] else 'FAILED'}: {description}")
+        if result["global_state"] == AsusPortForwarding.OFF:
             print("Note: port forwarding is globally OFF. Run: asuswrt pf enable --yes")
-        return EXIT_OK if ok else EXIT_ERROR
+        return EXIT_OK if result["applied"] else EXIT_ERROR
 
 
 async def cmd_pf_remove(args: argparse.Namespace) -> int:
     async with connect() as router:
         current = await port_forwarding_rules(router)
-
-        def matches(rule: PortForwardingRule) -> bool:
-            if args.name and rule.name != args.name:
-                return False
-            if args.port and rule.port_external != str(args.port):
-                return False
-            if args.proto and rule.protocol != args.proto:
-                return False
-            return bool(args.name or args.port)
-
-        doomed = [r for r in current if matches(r)]
+        doomed = [r for r in current if ops._pf_matches(r, args.name, args.port, args.proto)]
         if not doomed:
             print("No matching rule.", file=sys.stderr)
             return EXIT_ERROR
@@ -395,10 +242,11 @@ async def cmd_pf_remove(args: argparse.Namespace) -> int:
         if needs_confirm(args, description):
             return EXIT_NEEDS_CONFIRM
 
-        keep = [r for r in current if r not in doomed]
-        ok = await router.async_apply_port_forwarding_rules(keep)
-        print(f"{'Applied' if ok else 'FAILED'}: {description}")
-        return EXIT_OK if ok else EXIT_ERROR
+        result = await ops.port_forward_remove(
+            router, name=args.name, port=args.port, proto=args.proto
+        )
+        print(f"{'Applied' if result['applied'] else 'FAILED'}: {description}")
+        return EXIT_OK if result["applied"] else EXIT_ERROR
 
 
 async def cmd_pf_toggle(args: argparse.Namespace) -> int:
@@ -407,9 +255,9 @@ async def cmd_pf_toggle(args: argparse.Namespace) -> int:
         return EXIT_NEEDS_CONFIRM
 
     async with connect() as router:
-        ok = await router.async_set_state(target)
-        print(f"{'Applied' if ok else 'FAILED'}: port forwarding {target.name}")
-        return EXIT_OK if ok else EXIT_ERROR
+        result = await ops.set_port_forwarding(router, args.action == "enable")
+        print(f"{'Applied' if result['applied'] else 'FAILED'}: port forwarding {target.name}")
+        return EXIT_OK if result["applied"] else EXIT_ERROR
 
 
 # --------------------------------------------------------------------------
@@ -417,29 +265,17 @@ async def cmd_pf_toggle(args: argparse.Namespace) -> int:
 # --------------------------------------------------------------------------
 
 
-async def _firewall_show(router: Any) -> tuple[dict[str, Any], list[str]]:
-    raw = await read_nvram(router, FIREWALL_VARS)
-    pc = await router.async_get_data(AsusData.PARENTAL_CONTROL) or {}
-    payload = {"nvram": raw, "parental_control": pc}
-    return payload, render.firewall(payload)
-
-
 async def cmd_firewall_show(args: argparse.Namespace) -> int:
     async with connect() as router:
-        payload, lines = await _firewall_show(router)
-        emit(payload, lines, args.json)
+        payload = await ops.firewall(router)
+        emit(payload, render.firewall(payload), args.json)
     return EXIT_OK
-
-
-async def _parental_show(router: Any) -> tuple[dict[str, Any], list[str]]:
-    pc = await router.async_get_data(AsusData.PARENTAL_CONTROL) or {}
-    return pc, render.parental(pc)
 
 
 async def cmd_parental_show(args: argparse.Namespace) -> int:
     async with connect() as router:
-        payload, lines = await _parental_show(router)
-        emit(payload, lines, args.json)
+        payload = await ops.parental(router)
+        emit(payload, render.parental(payload), args.json)
     return EXIT_OK
 
 
@@ -449,9 +285,9 @@ async def cmd_parental(args: argparse.Namespace) -> int:
         return EXIT_NEEDS_CONFIRM
 
     async with connect() as router:
-        ok = await router.async_set_state(target)
-        print(f"{'Applied' if ok else 'FAILED'}: parental control {target.name}")
-        return EXIT_OK if ok else EXIT_ERROR
+        result = await ops.set_parental_control(router, args.action == "enable")
+        print(f"{'Applied' if result['applied'] else 'FAILED'}: parental control {target.name}")
+        return EXIT_OK if result["applied"] else EXIT_ERROR
 
 
 # --------------------------------------------------------------------------
@@ -459,64 +295,28 @@ async def cmd_parental(args: argparse.Namespace) -> int:
 # --------------------------------------------------------------------------
 
 
-async def _guest_show(router: Any) -> tuple[dict[str, Any], list[str]]:
-    gwlan = await router.async_get_data(AsusData.GWLAN) or {}
-    return gwlan, render.guest(gwlan)
-
-
 async def cmd_guest_show(args: argparse.Namespace) -> int:
     async with connect() as router:
-        payload, lines = await _guest_show(router)
-        emit(payload, lines, args.json)
+        payload = await ops.guest(router)
+        emit(payload, render.guest(payload), args.json)
     return EXIT_OK
 
 
 async def cmd_guest_toggle(args: argparse.Namespace) -> int:
-    # api_id is "<band index>.<guest index>" and becomes wl<api_id>_bss_enabled
-    # (asusrouter/modules/wlan.py::set_state).
-    band_index = {"2ghz": 0, "5ghz": 1}[args.band]
-    api_id = f"{band_index}.{args.id}"
     target = AsusWLAN.ON if args.action == "enable" else AsusWLAN.OFF
 
     if needs_confirm(args, f"turn guest network {args.band}_{args.id} {target.name}"):
         return EXIT_NEEDS_CONFIRM
 
     async with connect() as router:
-        ok = await router.async_set_state(target, api_type="gwlan", api_id=api_id)
-        print(f"{'Applied' if ok else 'FAILED'}: guest {args.band}_{args.id} {target.name}")
-        return EXIT_OK if ok else EXIT_ERROR
+        result = await ops.set_guest_network(router, args.band, args.id, args.action == "enable")
+        print(f"{'Applied' if result['applied'] else 'FAILED'}: guest {args.band}_{args.id} {target.name}")
+        return EXIT_OK if result["applied"] else EXIT_ERROR
 
 
 # --------------------------------------------------------------------------
 # Wireless security
 # --------------------------------------------------------------------------
-
-# Band name -> nvram prefix index. wl0 is 2.4 GHz, wl1 is 5 GHz.
-BANDS = {"2ghz": 0, "5ghz": 1}
-
-# WPA mode -> (wl<i>_auth_mode_x value, default wl<i>_mfp).
-# "psk2" is verified on RT-AX59U; "psk2sae" and "sae" are the standard
-# AsusWRT values but are not verified there, which is why every write is
-# read back before it is reported as applied.
-WPA_MODES = {
-    "wpa2": ("psk2", "0"),
-    "wpa2wpa3": ("psk2sae", "1"),
-    "wpa3": ("sae", "2"),
-}
-
-# 802.11w management frame protection.
-MFP_VALUES = {"disabled": "0", "capable": "1", "required": "2"}
-MFP_NAMES = {v: k for k, v in MFP_VALUES.items()}
-
-WIFI_VARS = ["wps_enable", "wps_enable_x", "wps_multiband", "wps_band_x"] + [
-    f"wl{i}_{suffix}"
-    for i in (0, 1)
-    for suffix in ("radio", "auth_mode_x", "crypto", "mfp", "country_code")
-]
-
-
-def _bands(selection: str) -> list[int]:
-    return [0, 1] if selection == "both" else [BANDS[selection]]
 
 
 def _report_apply(result: dict[str, Any], description: str, as_json: bool) -> int:
@@ -529,20 +329,14 @@ def _report_apply(result: dict[str, Any], description: str, as_json: bool) -> in
     return EXIT_OK if result["ok"] and not result["unchanged"] else EXIT_ERROR
 
 
-async def _wifi_show(router: Any) -> tuple[dict[str, Any], list[str]]:
-    raw = await read_nvram(router, WIFI_VARS)
-    return raw, render.wifi(raw)
-
-
 async def cmd_wifi_show(args: argparse.Namespace) -> int:
     async with connect() as router:
-        payload, lines = await _wifi_show(router)
-        emit(payload, lines, args.json)
+        payload = await ops.wifi(router)
+        emit(payload, render.wifi(payload), args.json)
     return EXIT_OK
 
 
 async def cmd_wifi_wps(args: argparse.Namespace) -> int:
-    value = "1" if args.action == "enable" else "0"
     description = f"turn WPS {'ON' if args.action == 'enable' else 'OFF'} on all bands"
     if args.action == "enable":
         description += " (the WPS PIN exchange is brute-forceable)"
@@ -550,26 +344,13 @@ async def cmd_wifi_wps(args: argparse.Namespace) -> int:
         return EXIT_NEEDS_CONFIRM
 
     async with connect() as router:
-        # wps_enable_x is what the web UI writes and wps_enable is the runtime
-        # flag; both are present on RT-AX59U and both are set here so the UI
-        # and the radio agree afterwards.
-        result = await apply_nvram(
-            router,
-            {"wps_enable": value, "wps_enable_x": value, "wps_multiband": value},
-            "restart_wireless",
-        )
+        result = await ops.set_wps(router, args.action == "enable")
         return _report_apply(result, description, args.json)
 
 
 async def cmd_wifi_security(args: argparse.Namespace) -> int:
     auth, default_mfp = WPA_MODES[args.mode]
     mfp = MFP_VALUES[args.mfp] if args.mfp else default_mfp
-
-    values: dict[str, str] = {}
-    for i in _bands(args.band):
-        values[f"wl{i}_auth_mode_x"] = auth
-        values[f"wl{i}_crypto"] = "aes"
-        values[f"wl{i}_mfp"] = mfp
 
     description = (
         f"set {args.band} to {args.mode} (auth_mode_x={auth}, crypto=aes, "
@@ -579,19 +360,18 @@ async def cmd_wifi_security(args: argparse.Namespace) -> int:
         return EXIT_NEEDS_CONFIRM
 
     async with connect() as router:
-        result = await apply_nvram(router, values, "restart_wireless")
+        result = await ops.set_wifi_security(router, args.band, args.mode, args.mfp)
         return _report_apply(result, description, args.json)
 
 
 async def cmd_wifi_country(args: argparse.Namespace) -> int:
     code = args.code.upper()
-    values = {f"wl{i}_country_code": code for i in _bands(args.band)}
     description = f"set the {args.band} country code to {code}"
     if needs_confirm(args, description):
         return EXIT_NEEDS_CONFIRM
 
     async with connect() as router:
-        result = await apply_nvram(router, values, "restart_wireless")
+        result = await ops.set_wifi_country(router, args.band, code)
         exit_code = _report_apply(result, description, args.json)
         if result["unchanged"]:
             print(
@@ -606,51 +386,11 @@ async def cmd_wifi_country(args: argparse.Namespace) -> int:
 # Firmware
 # --------------------------------------------------------------------------
 
-# The router queries ASUS asynchronously and the API gives no completion
-# signal, so the result is read back after a pause.
-FIRMWARE_CHECK_SECONDS = 5.0
-
-
-async def _latest_firmware(router: Any, wait: float) -> dict[str, Any]:
-    """Read firmware state, always refreshing it against ASUS first.
-
-    The router keeps a copy of `available` in nvram, but it is only refreshed
-    by the router's own periodic check — which is off by default
-    (webs_update_enable), so the stored value is routinely months stale and
-    worth nothing. The only number that matters here is what ASUS is offering
-    right now, because the sole purpose of reading it is to decide whether to
-    upgrade. So the check is run every time and the stored value is ignored.
-    """
-    async with progress("Asking the router to check with ASUS"):
-        if await router.async_set_state(AsusSystem.FIRMWARE_CHECK):
-            await asyncio.sleep(wait)
-        return await router.async_get_data(AsusData.FIRMWARE, force=True) or {}
-
-
-def _update_status(firmware: dict[str, Any]) -> tuple[str, str | None]:
-    """Classify firmware state as (status, latest version).
-
-    status is "update", "current" or "unknown". "unknown" is the honest answer
-    when the router could not reach ASUS: webs.available is only populated from
-    a reply, so an empty one means nothing was learned — which is different
-    from having learned that there is nothing to install.
-    """
-    webs = firmware.get("webs") or {}
-
-    if enum_name(webs.get("error")) not in ("NONE", "None"):
-        return "unknown", None
-    if not webs.get("available"):
-        return "unknown", None
-    if firmware.get("state") and firmware.get("available"):
-        return "update", str(firmware["available"])
-    return "current", str(webs["available"])
-
 
 async def cmd_firmware_show(args: argparse.Namespace) -> int:
     async with connect() as router:
-        firmware_data = await _latest_firmware(router, args.wait)
-        status, latest = _update_status(firmware_data)
-        payload = {**firmware_data, "status": status, "latest": latest}
+        async with progress("Asking the router to check with ASUS"):
+            payload = await ops.firmware(router, args.wait)
         emit(payload, render.firmware(payload, notes=args.notes), args.json)
     return EXIT_OK
 
@@ -660,31 +400,20 @@ async def cmd_firmware_upgrade(args: argparse.Namespace) -> int:
 
     Unlike the other mutations this connects before it can honour the dry run,
     because the version on offer has to be read before it can be named. Reading
-    firmware state has no side effects.
+    firmware state has no side effects. It only reads it once — the same
+    payload backs both the pre-flight checks below and, once confirmed, the
+    flash itself — so this does not call `ops.firmware_upgrade` (which does
+    its own independent read, meant for a single self-contained call such as
+    a future MCP tool invocation).
     """
     async with connect() as router:
-        firmware = await _latest_firmware(router, args.wait)
-        current = str(firmware.get("current"))
-        status, latest = _update_status(firmware)
+        async with progress("Asking the router to check with ASUS"):
+            payload = await ops.firmware(router, args.wait)
 
-        if args.beta:
-            if not firmware.get("state_beta") or not firmware.get("available_beta"):
-                print(
-                    f"No beta update is available; current version is {current}.",
-                    file=sys.stderr,
-                )
-                return EXIT_ERROR
-            status, latest = "update", str(firmware["available_beta"])
-
-        if status == "unknown":
-            print(
-                "Cannot verify the latest firmware version — the router got no "
-                "answer from ASUS. Refusing to flash on an unverified version.",
-                file=sys.stderr,
-            )
-            return EXIT_ERROR
-        if status == "current":
-            print(f"Already up to date on {current}.", file=sys.stderr)
+        try:
+            current, latest = ops._resolve_upgrade_target(payload, args.beta)
+        except ValueError as e:
+            print(str(e), file=sys.stderr)
             return EXIT_ERROR
 
         # With a terminal the version is shown and confirmed interactively.
@@ -717,8 +446,10 @@ async def cmd_firmware_upgrade(args: argparse.Namespace) -> int:
         if needs_confirm(args, description):
             return EXIT_NEEDS_CONFIRM
 
-        if not await router.async_set_state(AsusSystem.FIRMWARE_UPGRADE):
-            print("FAILED: the router refused the upgrade request", file=sys.stderr)
+        try:
+            await ops._apply_firmware_upgrade(router)
+        except ValueError as e:
+            print(str(e), file=sys.stderr)
             return EXIT_ERROR
 
         # The API acknowledges the request; it reports nothing about the
@@ -748,7 +479,7 @@ async def cmd_nvram(args: argparse.Namespace) -> int:
         return EXIT_ERROR
 
     async with connect() as router:
-        raw = await read_nvram(router, names)
+        raw = await ops.nvram(router, names)
         emit(raw, [f"{k:<24} {v!r}" for k, v in raw.items()], args.json)
     return EXIT_OK
 
@@ -758,9 +489,9 @@ async def cmd_reboot(args: argparse.Namespace) -> int:
         return EXIT_NEEDS_CONFIRM
 
     async with connect() as router:
-        ok = await router.async_set_state(AsusSystem.REBOOT)
-        print(f"{'Reboot requested' if ok else 'FAILED'}")
-        return EXIT_OK if ok else EXIT_ERROR
+        result = await ops.reboot(router)
+        print(f"{'Reboot requested' if result['requested'] else 'FAILED'}")
+        return EXIT_OK if result["requested"] else EXIT_ERROR
 
 
 # --------------------------------------------------------------------------

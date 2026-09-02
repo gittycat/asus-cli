@@ -8,7 +8,7 @@ import pytest
 
 from asusrouter.modules.port_forwarding import AsusPortForwarding, PortForwardingRule
 
-from asuswrt import cli, render
+from asuswrt import cli, ops, render
 from asuswrt.router import (
     ConfigError,
     RouterConfig,
@@ -211,9 +211,9 @@ def test_bands_maps_to_nvram_indexes(selection, expected):
 
 
 def test_split_rulelist_handles_the_escaped_delimiter():
-    assert render._split_rulelist("&#60a&#60b") == ["a", "b"]
-    assert render._split_rulelist("") == []
-    assert render._split_rulelist(None) == []
+    assert ops._split_rulelist("&#60a&#60b") == ["a", "b"]
+    assert ops._split_rulelist("") == []
+    assert ops._split_rulelist(None) == []
 
 
 def test_wpa_modes_and_mfp_tables_agree():
@@ -229,11 +229,3 @@ def test_wifi_vars_covers_both_bands_and_wps():
     for index in (0, 1):
         for suffix in ("radio", "auth_mode_x", "crypto", "mfp", "country_code"):
             assert f"wl{index}_{suffix}" in cli.WIFI_VARS
-
-
-def test_render_duplicates_cli_bands_and_mfp_names_until_ops_exists():
-    """render.py carries its own copy of these two tiny tables (see its module
-    docstring) until Phase 2b gives both a single source in ops.py. This just
-    catches the two copies drifting apart in the meantime."""
-    assert render.BANDS == cli.BANDS
-    assert render.MFP_NAMES == cli.MFP_NAMES

@@ -8,41 +8,22 @@ state — that all stays in the CLI.
 This module is a temporary sibling of `cli.py` rather than `cli/render.py`.
 The target layout (see docs/mcp-server-plan.md) puts it inside a `cli/`
 package alongside `cli/main.py`, but `src/asuswrt/cli.py` cannot become both
-a module and a package at once, and this phase (2a) is scoped to keep
+a module and a package at once, and this phase (2b) is scoped to keep
 `cli.py` a module. Phase 2c moves this file to `cli/render.py` alongside the
 `cli.py` -> `cli/main.py` move.
-
-`BANDS` and `MFP_NAMES` are duplicated here from `cli.py`, which still needs
-its own copies for building nvram writes and confirmation text. Phase 2b
-moves the canonical copies into `ops.py`; this module will import them from
-there instead once that exists.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from asuswrt.ops import BANDS, MFP_NAMES, _split_rulelist
 from asuswrt.router import enum_name
-
-# Band name -> nvram prefix index. Kept in sync with cli.BANDS by hand until
-# Phase 2b, when both import a single copy from ops.py.
-BANDS = {"2ghz": 0, "5ghz": 1}
-
-# 802.11w management frame protection, value -> display name. Kept in sync
-# with cli.MFP_NAMES until Phase 2b.
-MFP_NAMES = {"0": "disabled", "1": "capable", "2": "required"}
 
 
 def _onoff(value: Any) -> str:
     """Render an nvram boolean, keeping the raw value visible when it is not one."""
     return {"1": "ON", "0": "OFF"}.get(str(value), f"? ({value!r})")
-
-
-def _split_rulelist(value: Any) -> list[str]:
-    """Split an ASUS rule list. Entries are separated by the escaped '<'."""
-    if not value or not isinstance(value, str):
-        return []
-    return [part for part in value.replace("&#60", "<").split("<") if part]
 
 
 def system(payload: dict[str, Any]) -> list[str]:
@@ -201,6 +182,28 @@ def firmware(payload: dict[str, Any], *, notes: bool) -> list[str]:
         lines.append("\nRun `asuswrt firmware show --notes` for the release note.")
     if status == "update":
         lines.append(f"Upgrade with: asuswrt firmware upgrade --to {latest} --yes")
+    return lines
+
+
+def overview_clients(payload: dict[str, Any]) -> list[str]:
+    """The `show` sweep's client line: a count, not the full table."""
+    return [
+        f"{payload['online']} online / {payload['known']} known"
+        "   (full table: asuswrt clients)"
+    ]
+
+
+def overview_firmware(payload: dict[str, Any]) -> list[str]:
+    """The `show` sweep's short firmware summary — not the full `firmware()` report."""
+    status = payload.get("status")
+    latest = payload.get("latest")
+    lines = [f"Current    {payload.get('current')}"]
+    if status == "update":
+        lines.append(f"Latest     {latest}   ** update available **")
+    elif status == "current":
+        lines.append(f"Latest     {latest}   (up to date)")
+    else:
+        lines.append("Latest     could not verify")
     return lines
 
 
