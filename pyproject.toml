@@ -1,5 +1,5 @@
 [project]
-name = "asus-cli"
+name = "asuswrt"
 version = "0.4.0"
 description = "CLI program to query and modify an ASUS RT-AX59U router over its HTTP API"
 readme = "README.md"
@@ -13,8 +13,8 @@ dependencies = [
 ]
 
 [project.scripts]
-asus-cli = "asus_cli.cli:main"
-probe = "asus_cli.probe:main"
+asuswrt = "asuswrt.cli:main"
+asuswrt-probe = "asuswrt.probe:main"
 
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]

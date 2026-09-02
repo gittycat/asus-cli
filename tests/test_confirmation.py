@@ -15,7 +15,7 @@ import pytest
 
 from asusrouter.modules.port_forwarding import AsusPortForwarding
 
-from asus_cli import cli
+from asuswrt import cli
 from helpers import FakeRouter, invoke
 
 # A mutation that is cheap to observe: it records exactly one state.

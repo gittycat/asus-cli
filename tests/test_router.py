@@ -8,8 +8,8 @@ import pytest
 
 from asusrouter.modules.port_forwarding import AsusPortForwarding, PortForwardingRule
 
-from asus_cli import cli
-from asus_cli.router import (
+from asuswrt import cli
+from asuswrt.router import (
     ConfigError,
     RouterConfig,
     apply_nvram,
@@ -30,7 +30,7 @@ def _empty_env(tmp_path):
     """An env file that exists but sets nothing.
 
     load_config stops at the first path that exists, so this keeps a real
-    ./.env or ~/.config/asus-cli/.env out of the test.
+    ./.env or ~/.config/asuswrt/.env out of the test.
     """
     path = tmp_path / "empty.env"
     path.write_text("")
@@ -50,12 +50,12 @@ def test_url_is_built_from_scheme_host_and_port():
 
 
 def test_config_paths_puts_the_override_first(monkeypatch, tmp_path):
-    monkeypatch.setenv("ASUS_ENV_FILE", str(tmp_path / "custom.env"))
+    monkeypatch.setenv("ASUSWRT_ENV_FILE", str(tmp_path / "custom.env"))
     assert config_paths()[0] == tmp_path / "custom.env"
 
 
 def test_config_paths_without_an_override_starts_at_the_working_directory(monkeypatch):
-    monkeypatch.delenv("ASUS_ENV_FILE", raising=False)
+    monkeypatch.delenv("ASUSWRT_ENV_FILE", raising=False)
     assert config_paths()[0].name == ".env"
 
 
@@ -63,7 +63,7 @@ def test_missing_password_names_every_path_it_searched(monkeypatch, tmp_path):
     """Never ask for the password in chat — the error is the instructions."""
     env = tmp_path / "empty.env"
     env.write_text("ROUTER_HOST=192.168.50.1\n")
-    monkeypatch.setenv("ASUS_ENV_FILE", str(env))
+    monkeypatch.setenv("ASUSWRT_ENV_FILE", str(env))
     monkeypatch.delenv("ROUTER_PASS", raising=False)
 
     with pytest.raises(ConfigError) as exc:
@@ -76,7 +76,7 @@ def test_missing_password_names_every_path_it_searched(monkeypatch, tmp_path):
 
 
 def test_config_defaults_fill_in_around_the_password(monkeypatch, tmp_path):
-    monkeypatch.setenv("ASUS_ENV_FILE", str(_empty_env(tmp_path)))
+    monkeypatch.setenv("ASUSWRT_ENV_FILE", str(_empty_env(tmp_path)))
     monkeypatch.setenv("ROUTER_PASS", "secret")
     for name in ("ROUTER_HOST", "ROUTER_USER", "ROUTER_SSL", "ROUTER_PORT"):
         monkeypatch.delenv(name, raising=False)
@@ -96,7 +96,7 @@ def test_config_defaults_fill_in_around_the_password(monkeypatch, tmp_path):
      ("false", False), ("0", False), ("", False)],
 )
 def test_router_ssl_parsing(monkeypatch, tmp_path, value, expected):
-    monkeypatch.setenv("ASUS_ENV_FILE", str(_empty_env(tmp_path)))
+    monkeypatch.setenv("ASUSWRT_ENV_FILE", str(_empty_env(tmp_path)))
     monkeypatch.setenv("ROUTER_PASS", "secret")
     monkeypatch.setenv("ROUTER_SSL", value)
     assert load_config().use_ssl is expected

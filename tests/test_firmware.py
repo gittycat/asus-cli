@@ -14,7 +14,7 @@ from asusrouter import AsusData
 from asusrouter.modules.firmware import WebsError
 from asusrouter.modules.system import AsusSystem
 
-from asus_cli import cli
+from asuswrt import cli
 from helpers import FakeRouter, default_data, invoke
 
 OFFERED = "3.0.0.4.388.34098_g9b0c9ae"
@@ -74,7 +74,7 @@ def test_show_checks_online_before_reporting(router):
 def test_show_names_the_upgrade_command_when_one_is_offered(router):
     """The only reason to read this is to decide whether to upgrade."""
     out = invoke(router, "firmware", "show", *NOWAIT).out
-    assert f"asus-cli firmware upgrade --to {OFFERED} --yes" in out
+    assert f"asuswrt firmware upgrade --to {OFFERED} --yes" in out
 
 
 def test_show_offers_no_upgrade_line_when_up_to_date():
@@ -125,7 +125,7 @@ def test_show_treats_a_download_error_as_unverified():
 
 def test_show_hides_the_release_note_behind_a_flag(router):
     without = invoke(router, "firmware", "show", *NOWAIT).out
-    assert "Run `asus-cli firmware show --notes`" in without
+    assert "Run `asuswrt firmware show --notes`" in without
     assert "Strengthened data handling" not in without
 
     with_notes = invoke(router, "firmware", "show", "--notes", *NOWAIT).out
@@ -237,7 +237,7 @@ def test_upgrade_does_not_claim_the_upgrade_finished(router):
 
     assert "requested" in out
     assert "reports no progress" in out
-    assert "asus-cli system show" in out
+    assert "asuswrt system show" in out
     for word in ("Upgraded", "completed", "success"):
         assert word not in out
 

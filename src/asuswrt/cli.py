@@ -1,4 +1,4 @@
-"""asus-cli — command line control for an ASUS router over its HTTP API.
+"""asuswrt — command line control for an ASUS router over its HTTP API.
 
 Read commands print a human-readable summary, or JSON with --json.
 Every command that changes the router asks first. --yes skips the asking;
@@ -21,7 +21,7 @@ from asusrouter.modules.port_forwarding import AsusPortForwarding, PortForwardin
 from asusrouter.modules.system import AsusSystem
 from asusrouter.modules.wlan import AsusWLAN
 
-from asus_cli.router import (
+from asuswrt.router import (
     ConfigError,
     apply_nvram,
     connect,
@@ -311,7 +311,7 @@ async def cmd_show(args: argparse.Namespace) -> int:
                 {"online": online, "known": len(rows)},
                 [
                     f"{online} online / {len(rows)} known"
-                    "   (full table: asus-cli clients)"
+                    "   (full table: asuswrt clients)"
                 ],
             )
         )
@@ -354,7 +354,7 @@ async def cmd_show(args: argparse.Namespace) -> int:
         for title, _, _, lines in sections:
             out += [title, *lines, ""]
         if not args.firmware:
-            out.append("Firmware update not checked. Run: asus-cli firmware show")
+            out.append("Firmware update not checked. Run: asuswrt firmware show")
 
         emit({key: payload for _, key, payload, _ in sections}, out, args.json)
     return EXIT_OK
@@ -427,7 +427,7 @@ async def cmd_pf_add(args: argparse.Namespace) -> int:
 
         data = await router.async_get_data(AsusData.PORT_FORWARDING, force=True) or {}
         if data.get("state") == AsusPortForwarding.OFF:
-            print("Note: port forwarding is globally OFF. Run: asus-cli pf enable --yes")
+            print("Note: port forwarding is globally OFF. Run: asuswrt pf enable --yes")
         return EXIT_OK if ok else EXIT_ERROR
 
 
@@ -728,7 +728,7 @@ async def cmd_wifi_country(args: argparse.Namespace) -> int:
         if result["unchanged"]:
             print(
                 "Country code is usually locked to the hardware SKU on stock "
-                "firmware. Compare against: asus-cli nvram reg_spec location_code",
+                "firmware. Compare against: asuswrt nvram reg_spec location_code",
                 file=sys.stderr,
             )
         return exit_code
@@ -799,9 +799,9 @@ async def cmd_firmware_show(args: argparse.Namespace) -> int:
         if note and args.notes:
             lines += ["", "Release note:", str(note)]
         elif note and status == "update":
-            lines.append("\nRun `asus-cli firmware show --notes` for the release note.")
+            lines.append("\nRun `asuswrt firmware show --notes` for the release note.")
         if status == "update":
-            lines.append(f"Upgrade with: asus-cli firmware upgrade --to {latest} --yes")
+            lines.append(f"Upgrade with: asuswrt firmware upgrade --to {latest} --yes")
 
         emit({**firmware, "status": status, "latest": latest}, lines, args.json)
     return EXIT_OK
@@ -878,7 +878,7 @@ async def cmd_firmware_upgrade(args: argparse.Namespace) -> int:
         print(
             f"Upgrade to {latest} requested.\n"
             "The router reports no progress over this API. Expect 5-10 minutes "
-            "of downtime, then confirm the new version with: asus-cli system show"
+            "of downtime, then confirm the new version with: asuswrt system show"
         )
         return EXIT_OK
 
@@ -934,7 +934,7 @@ def build_parser() -> argparse.ArgumentParser:
     an agent has already learned is a contract.
     """
     parser = argparse.ArgumentParser(
-        prog="asus-cli", description="Control an ASUS router over its HTTP API."
+        prog="asuswrt", description="Control an ASUS router over its HTTP API."
     )
     parser.add_argument("--json", action="store_true", help="machine-readable output")
     sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
