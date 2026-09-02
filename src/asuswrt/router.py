@@ -61,12 +61,23 @@ def config_paths() -> list[Path]:
     return paths
 
 
-def load_config() -> RouterConfig:
-    """Read the router configuration from the environment."""
+def load_env() -> None:
+    """Load a .env file into the environment, if one exists.
+
+    Split out of load_config() so a caller that only needs the environment
+    populated — the MCP server, deciding its write/dangerous gates before it
+    knows whether ROUTER_PASS is even set — can do that without also
+    requiring a password.
+    """
     for path in config_paths():
         if path.is_file():
             load_dotenv(path)
             break
+
+
+def load_config() -> RouterConfig:
+    """Read the router configuration from the environment."""
+    load_env()
 
     password = os.getenv("ROUTER_PASS")
     if not password:

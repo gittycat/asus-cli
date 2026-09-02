@@ -1,0 +1,706 @@
+"""asuswrt-mcp — a stdio MCP server over the same operations the CLI uses.
+
+Flat module, not a package: `import mcp` here unambiguously means the MCP
+Python SDK, not this project.
+
+This module must never import `asuswrt.cli`. `ops.py` is the only thing the
+CLI and this server share. stdout is the JSON-RPC channel on stdio — one
+stray `print` under a tool call kills the connection, so all logging here
+goes to stderr, and only ever names the tool, how long it took, and the
+outcome. Never arguments, never config objects, never the password.
+
+Connection model: one login per tool call, same as the CLI. A fresh
+`connect()` happens inside `run()` for every call — no session is held open
+between calls, and nothing here retries anything automatically. One
+`asyncio.Lock` around every call serialises them, so an eager host cannot
+open two logins at once.
+
+Gates, read once at startup (changing them means restarting the server):
+
+    ASUSWRT_MCP_ALLOW_WRITES=1      registers the 8 write tools
+    ASUSWRT_MCP_ALLOW_DANGEROUS=1   (together with the gate above) registers
+                                     reboot_router and upgrade_firmware
+
+Every write tool takes confirm: bool = False. Without it, the tool connects,
+reads what the change would touch, and returns a preview — it writes
+nothing. With confirm=True it applies. See Appendix B of
+docs/mcp-server-plan.md for the exact result shapes.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+import sys
+import time
+from collections.abc import Awaitable, Callable
+from typing import Annotated, Any, Literal
+
+from asusrouter import AsusData, AsusRouterError
+from asusrouter.modules.port_forwarding import AsusPortForwarding, PortForwardingRule
+from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
+from mcp.types import ToolAnnotations
+from pydantic import Field
+
+from asuswrt import ops
+from asuswrt.ops import (
+    CPU_SAMPLE_SECONDS,
+    FIRMWARE_CHECK_SECONDS,
+    MFP_NAMES,
+    MFP_VALUES,
+    WPA_MODES,
+    _bands,
+)
+from asuswrt.router import ConfigError, connect, jsonable, load_env, port_forwarding_rules, read_nvram
+
+logger = logging.getLogger("asuswrt.mcp_server")
+
+# Timeouts, per the plan: reads get 30 s; the firmware check and every write
+# (preview or apply — both connect) get 60 s. No automatic retry of anything.
+READ_TIMEOUT = 30.0
+WRITE_TIMEOUT = 60.0
+
+_lock = asyncio.Lock()
+
+Port = Annotated[int, Field(ge=1, le=65535)]
+GuestIndex = Literal[1, 2, 3]
+Band = Literal["2ghz", "5ghz"]
+AnyBand = Literal["2ghz", "5ghz", "both"]
+Proto = Literal["TCP", "UDP", "BOTH", "OTHER"]
+CountryCode = Annotated[str, Field(pattern=r"^[A-Za-z]{2}$")]
+NvramName = Annotated[str, Field(min_length=1)]
+
+Op = Callable[[Any], Awaitable[Any]]
+
+
+def _configure_logging() -> None:
+    """stderr only. stdout is the JSON-RPC channel."""
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter("%(asctime)s asuswrt-mcp %(message)s"))
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+
+async def run(op: Op, *, name: str, timeout: float, write: bool = False) -> Any:
+    """Connect once, run `op`, convert the result, map anticipated failures.
+
+    `ConfigError`, `AsusRouterError` and a domain `ValueError` all become a
+    `ToolError` — anything else escapes as a crash, which is what the SDK
+    wants for a bug rather than an anticipated refusal. A timeout gets its
+    own message: for a write, the change may or may not have landed, so the
+    message says to check with the matching read tool rather than implying
+    either outcome.
+    """
+    start = time.monotonic()
+    outcome = "error"
+    try:
+        async with _lock:
+            async with asyncio.timeout(timeout):
+                try:
+                    async with connect() as router:
+                        result = jsonable(await op(router))
+                    outcome = "ok"
+                    return result
+                except ConfigError as e:
+                    raise ToolError(str(e)) from e
+                except AsusRouterError as e:
+                    raise ToolError(f"Router error: {e}") from e
+                except ValueError as e:
+                    raise ToolError(str(e)) from e
+    except TimeoutError as e:
+        if write:
+            raise ToolError(
+                f"Timed out waiting for the router ({name}). The change may or may "
+                "not have been applied. Call the matching read tool to check."
+            ) from e
+        raise ToolError(f"Timed out waiting for the router ({name}). Try again.") from e
+    finally:
+        logger.info("tool=%s duration=%.2fs outcome=%s", name, time.monotonic() - start, outcome)
+
+
+def _preview(change: str, current: Any, warnings: list[str] | None = None) -> dict[str, Any]:
+    return {
+        "status": "preview",
+        "applied": False,
+        "change": change,
+        "warnings": warnings or [],
+        "current": current,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Reads — always registered
+# ---------------------------------------------------------------------------
+
+
+async def get_overview() -> dict:
+    """Broad router status in one call: identity, health, WAN, and counts for
+    clients, firewall, parental control, port forwarding, guest wifi and
+    wireless. No firmware check (that costs ~5 s and answers a different
+    question) and no raw nvram. Use this first; call a specific tool
+    afterwards only for detailed rows (list_clients, list_port_forwards, ...).
+    """
+    return await run(lambda router: ops.overview(router, CPU_SAMPLE_SECONDS, False, 0), name="get_overview", timeout=READ_TIMEOUT)
+
+
+async def get_system() -> dict:
+    """Router identity: model, firmware version, MAC, AiMesh. None of it
+    changes until a reboot or a firmware flash."""
+    return await run(ops.system, name="get_system", timeout=READ_TIMEOUT)
+
+
+async def get_health() -> dict:
+    """Live load: uptime, CPU usage (total and per core), RAM, and the
+    current WAN link state and IP."""
+    return await run(
+        lambda router: ops.health(router, CPU_SAMPLE_SECONDS), name="get_health", timeout=READ_TIMEOUT
+    )
+
+
+async def get_wan() -> dict:
+    """Internet connection detail: link state, IP, gateway, DNS."""
+    return await run(ops.wan, name="get_wan", timeout=READ_TIMEOUT)
+
+
+async def list_clients(online_only: bool = False) -> list[dict]:
+    """Connected and known devices, with name, vendor, IP, connection type
+    and online state. Pass online_only=True to list only devices currently
+    online."""
+    return await run(
+        lambda router: ops.clients(router, online_only), name="list_clients", timeout=READ_TIMEOUT
+    )
+
+
+async def get_firewall_and_filters() -> dict:
+    """Firewall, URL/keyword filter and parental-control nvram state."""
+    return await run(ops.firewall, name="get_firewall_and_filters", timeout=READ_TIMEOUT)
+
+
+async def get_parental_control() -> dict:
+    """Parental control on/off state and its rules."""
+    return await run(ops.parental, name="get_parental_control", timeout=READ_TIMEOUT)
+
+
+async def list_port_forwards() -> dict:
+    """Port forwarding rules, and whether forwarding is globally enabled. A
+    rule does nothing while the global switch is off."""
+    return await run(ops.port_forwarding, name="list_port_forwards", timeout=READ_TIMEOUT)
+
+
+async def list_guest_networks() -> dict:
+    """Guest wireless network state per band (SSID, enabled)."""
+    return await run(ops.guest, name="list_guest_networks", timeout=READ_TIMEOUT)
+
+
+async def get_wireless() -> dict:
+    """Radio, WPA mode, management frame protection, country code and WPS
+    state for both bands."""
+    return await run(ops.wifi, name="get_wireless", timeout=READ_TIMEOUT)
+
+
+async def check_firmware_update() -> dict:
+    """Ask the router to check ASUS for a firmware update, then report the
+    installed and offered versions. This makes the router contact ASUS's
+    servers and takes about 5 seconds — it is read-only (nothing is written)
+    but not free, so do not call it as part of a routine status check. Use
+    the returned `latest` version with upgrade_firmware's `to`."""
+    return await run(
+        lambda router: ops.firmware(router, FIRMWARE_CHECK_SECONDS),
+        name="check_firmware_update",
+        timeout=WRITE_TIMEOUT,
+    )
+
+
+async def get_nvram(names: Annotated[list[NvramName], Field(min_length=1)]) -> dict:
+    """Read raw nvram variables that have no dedicated tool. Read-only by
+    design. Give at least one variable name."""
+    return await run(lambda router: ops.nvram(router, list(names)), name="get_nvram", timeout=READ_TIMEOUT)
+
+
+READS: list[tuple[Callable, ToolAnnotations]] = [
+    (get_overview, ToolAnnotations(read_only_hint=True, open_world_hint=False, title="Router overview")),
+    (get_system, ToolAnnotations(read_only_hint=True, open_world_hint=False, title="Router identity")),
+    (get_health, ToolAnnotations(read_only_hint=True, open_world_hint=False, title="Router health")),
+    (get_wan, ToolAnnotations(read_only_hint=True, open_world_hint=False, title="WAN status")),
+    (list_clients, ToolAnnotations(read_only_hint=True, open_world_hint=False, title="Connected devices")),
+    (
+        get_firewall_and_filters,
+        ToolAnnotations(read_only_hint=True, open_world_hint=False, title="Firewall and filters"),
+    ),
+    (
+        get_parental_control,
+        ToolAnnotations(read_only_hint=True, open_world_hint=False, title="Parental control"),
+    ),
+    (
+        list_port_forwards,
+        ToolAnnotations(read_only_hint=True, open_world_hint=False, title="Port forwarding rules"),
+    ),
+    (
+        list_guest_networks,
+        ToolAnnotations(read_only_hint=True, open_world_hint=False, title="Guest networks"),
+    ),
+    (get_wireless, ToolAnnotations(read_only_hint=True, open_world_hint=False, title="Wireless security")),
+    (
+        check_firmware_update,
+        ToolAnnotations(read_only_hint=True, open_world_hint=True, title="Check for firmware update"),
+    ),
+    (get_nvram, ToolAnnotations(read_only_hint=True, open_world_hint=False, title="Read raw nvram")),
+]
+
+
+# ---------------------------------------------------------------------------
+# Writes — registered only when ASUSWRT_MCP_ALLOW_WRITES=1
+# ---------------------------------------------------------------------------
+
+
+async def add_port_forward(
+    name: str,
+    port: Port,
+    to_ip: str,
+    to_port: Port | None = None,
+    proto: Proto = "TCP",
+    from_ip: str = "",
+    force: bool = False,
+    confirm: bool = False,
+) -> dict:
+    """Forward an external port to a device on the LAN.
+
+    SAFETY: a forwarded port exposes that device to the internet. Name risky
+    ports plainly in `name` (22=SSH, 3389=RDP, 445=SMB, database ports). A
+    rule does nothing while port forwarding is globally OFF — check
+    `global_state` in the result, or list_port_forwards.
+
+    confirm=False (default) previews the rule and writes nothing. confirm=True
+    applies it. A clash with an existing rule on the same external port and
+    protocol is refused unless force=True.
+    """
+    rule = PortForwardingRule(
+        name=name,
+        ip_address=to_ip,
+        port=str(to_port or port),
+        protocol=proto,
+        ip_external=from_ip,
+        port_external=str(port),
+    )
+    description = f"add rule {name!r}: :{port} -> {to_ip}:{to_port or port} {proto}"
+
+    async def op(router: Any) -> dict:
+        if not confirm:
+            current = await port_forwarding_rules(router)
+            clash = [
+                r for r in current if r.port_external == rule.port_external and r.protocol == rule.protocol
+            ]
+            if clash and not force:
+                raise ValueError(
+                    f"External port {rule.port_external}/{rule.protocol} is already "
+                    f"forwarded to {clash[0].ip_address}:{clash[0].port}. "
+                    "Pass force=True to add anyway."
+                )
+            data = await router.async_get_data(AsusData.PORT_FORWARDING) or {}
+            warnings = []
+            if data.get("state") == AsusPortForwarding.OFF:
+                warnings.append(
+                    "Port forwarding is globally OFF; this rule would do nothing until enabled."
+                )
+            return _preview(description, {"clash": clash, "global_state": data.get("state")}, warnings)
+
+        result = await ops.port_forward_add(router, rule, force=force)
+        if not result["applied"]:
+            raise ValueError(f"FAILED: {description}")
+        return {"status": "applied", "change": description, **result}
+
+    return await run(op, name="add_port_forward", timeout=WRITE_TIMEOUT, write=True)
+
+
+async def remove_port_forward(
+    name: str | None = None,
+    port: Port | None = None,
+    proto: Proto | None = None,
+    confirm: bool = False,
+) -> dict:
+    """Remove port forwarding rule(s) matching a name and/or external port.
+
+    At least one of `name` or `port` is required. Every matching rule is
+    removed — a port can carry both a TCP and a UDP rule, and asking by port
+    alone removes both, which is why the preview lists every rule that would
+    go.
+
+    confirm=False previews which rules would be removed and writes nothing.
+    confirm=True removes them.
+    """
+    if not name and not port:
+        raise ToolError("Give at least one of name or port.")
+
+    async def op(router: Any) -> dict:
+        current = await port_forwarding_rules(router)
+        doomed = [r for r in current if ops._pf_matches(r, name, port, proto)]
+        if not doomed:
+            raise ValueError("No matching rule.")
+
+        description = "remove " + ", ".join(
+            f"{r.name!r} (:{r.port_external} -> {r.ip_address}:{r.port})" for r in doomed
+        )
+        if not confirm:
+            return _preview(description, {"rules": doomed})
+
+        result = await ops.port_forward_remove(router, name=name, port=port, proto=proto)
+        if not result["applied"]:
+            raise ValueError(f"FAILED: {description}")
+        return {"status": "applied", "change": description, **result}
+
+    return await run(op, name="remove_port_forward", timeout=WRITE_TIMEOUT, write=True)
+
+
+async def set_port_forwarding_enabled(enabled: bool, confirm: bool = False) -> dict:
+    """Turn port forwarding globally on or off. Existing rules are
+    unaffected but do nothing while this is off.
+
+    confirm=False previews the current state and writes nothing. confirm=True
+    applies it.
+    """
+    description = f"turn port forwarding globally {'ON' if enabled else 'OFF'}"
+
+    async def op(router: Any) -> dict:
+        if not confirm:
+            return _preview(description, await ops.port_forwarding(router))
+        result = await ops.set_port_forwarding(router, enabled)
+        if not result["applied"]:
+            raise ValueError(f"FAILED: {description}")
+        return {"status": "applied", "change": description, **result}
+
+    return await run(op, name="set_port_forwarding_enabled", timeout=WRITE_TIMEOUT, write=True)
+
+
+async def set_parental_control_enabled(enabled: bool, confirm: bool = False) -> dict:
+    """Turn parental control on or off.
+
+    confirm=False previews the current state and writes nothing. confirm=True
+    applies it.
+    """
+    description = f"turn parental control {'ON' if enabled else 'OFF'}"
+
+    async def op(router: Any) -> dict:
+        if not confirm:
+            return _preview(description, await ops.parental(router))
+        result = await ops.set_parental_control(router, enabled)
+        if not result["applied"]:
+            raise ValueError(f"FAILED: {description}")
+        return {"status": "applied", "change": description, **result}
+
+    return await run(op, name="set_parental_control_enabled", timeout=WRITE_TIMEOUT, write=True)
+
+
+async def set_guest_network_enabled(
+    band: Band, index: GuestIndex, enabled: bool, confirm: bool = False
+) -> dict:
+    """Turn one guest wireless network on or off.
+
+    confirm=False previews the current state and writes nothing. confirm=True
+    applies it.
+    """
+    description = f"turn guest network {band}_{index} {'ON' if enabled else 'OFF'}"
+    key = f"{band}_{index}"
+
+    async def op(router: Any) -> dict:
+        if not confirm:
+            data = await router.async_get_data(AsusData.GWLAN) or {}
+            return _preview(description, {key: data.get(key)})
+        result = await ops.set_guest_network(router, band, index, enabled)
+        if not result["applied"]:
+            raise ValueError(f"FAILED: {description}")
+        return {"status": "applied", "change": description, **result}
+
+    return await run(op, name="set_guest_network_enabled", timeout=WRITE_TIMEOUT, write=True)
+
+
+async def set_wps_enabled(enabled: bool, confirm: bool = False) -> dict:
+    """Turn Wi-Fi Protected Setup on or off on both bands.
+
+    SAFETY: the WPS PIN exchange is brute-forceable — enabling it weakens
+    the network.
+
+    confirm=False previews the current nvram values and writes nothing.
+    confirm=True applies it; the result's before/after/unchanged proves
+    whether the firmware actually took the value.
+    """
+    description = f"turn WPS {'ON' if enabled else 'OFF'} on all bands"
+
+    async def op(router: Any) -> dict:
+        if not confirm:
+            current = await read_nvram(router, ["wps_enable", "wps_enable_x", "wps_multiband"])
+            warnings = ["The WPS PIN exchange is brute-forceable."] if enabled else []
+            return _preview(description, current, warnings)
+        result = await ops.set_wps(router, enabled)
+        if not result["ok"] or result["unchanged"]:
+            raise ValueError(
+                f"FAILED: {description}. The firmware did not take: {result['unchanged']}"
+            )
+        return {"status": "applied", "change": description, **result}
+
+    return await run(op, name="set_wps_enabled", timeout=WRITE_TIMEOUT, write=True)
+
+
+async def set_wifi_security(
+    mode: Literal["wpa2", "wpa2wpa3", "wpa3"],
+    band: AnyBand = "both",
+    mfp: Literal["disabled", "capable", "required"] | None = None,
+    confirm: bool = False,
+) -> dict:
+    """Set the WPA mode and 802.11w management frame protection.
+
+    SAFETY: this restarts both radios — every wireless client on the
+    affected band(s) disconnects and reconnects.
+
+    confirm=False previews the current nvram values and writes nothing.
+    confirm=True applies it; the result's before/after/unchanged proves
+    whether the firmware actually took the value.
+    """
+    auth, default_mfp = WPA_MODES[mode]
+    mfp_value = MFP_VALUES[mfp] if mfp else default_mfp
+    description = (
+        f"set {band} to {mode} (auth_mode_x={auth}, crypto=aes, mfp={MFP_NAMES[mfp_value]}) "
+        "— every wireless client on the affected band(s) reconnects"
+    )
+
+    async def op(router: Any) -> dict:
+        names = [f"wl{i}_{suffix}" for i in _bands(band) for suffix in ("auth_mode_x", "crypto", "mfp")]
+        if not confirm:
+            current = await read_nvram(router, names)
+            return _preview(
+                description, current, ["Every wireless client on the affected band(s) will reconnect."]
+            )
+        result = await ops.set_wifi_security(router, band, mode, mfp)
+        if not result["ok"] or result["unchanged"]:
+            raise ValueError(
+                f"FAILED: {description}. The firmware did not take: {result['unchanged']}"
+            )
+        return {"status": "applied", "change": description, **result}
+
+    return await run(op, name="set_wifi_security", timeout=WRITE_TIMEOUT, write=True)
+
+
+async def set_wifi_country(band: AnyBand, code: CountryCode, confirm: bool = False) -> dict:
+    """Set the regulatory country code.
+
+    SAFETY: this restarts both radios — every wireless client on the
+    affected band(s) disconnects and reconnects. Country code is usually
+    locked to the hardware SKU on stock firmware, so the write may be
+    accepted and then silently ignored; the result's before/after/unchanged
+    is what actually decides success, not the acknowledgement.
+
+    confirm=False previews the current nvram values and writes nothing.
+    confirm=True applies it.
+    """
+    code = code.upper()
+    description = f"set the {band} country code to {code}"
+
+    async def op(router: Any) -> dict:
+        names = [f"wl{i}_country_code" for i in _bands(band)]
+        if not confirm:
+            current = await read_nvram(router, names)
+            return _preview(
+                description,
+                current,
+                ["Every wireless client on the affected band(s) will reconnect."],
+            )
+        result = await ops.set_wifi_country(router, band, code)
+        if not result["ok"] or result["unchanged"]:
+            raise ValueError(
+                f"FAILED: {description}. Country code is usually locked to the hardware "
+                f"SKU on stock firmware. Did not take: {result['unchanged']}"
+            )
+        return {"status": "applied", "change": description, **result}
+
+    return await run(op, name="set_wifi_country", timeout=WRITE_TIMEOUT, write=True)
+
+
+WRITES: list[tuple[Callable, ToolAnnotations]] = [
+    (
+        add_port_forward,
+        ToolAnnotations(
+            destructive_hint=False, idempotent_hint=False, open_world_hint=True, title="Add port forward"
+        ),
+    ),
+    (
+        remove_port_forward,
+        ToolAnnotations(
+            destructive_hint=True, idempotent_hint=False, open_world_hint=True, title="Remove port forward"
+        ),
+    ),
+    (
+        set_port_forwarding_enabled,
+        ToolAnnotations(
+            destructive_hint=False, idempotent_hint=True, open_world_hint=False, title="Port forwarding on/off"
+        ),
+    ),
+    (
+        set_parental_control_enabled,
+        ToolAnnotations(
+            destructive_hint=False, idempotent_hint=True, open_world_hint=False, title="Parental control on/off"
+        ),
+    ),
+    (
+        set_guest_network_enabled,
+        ToolAnnotations(
+            destructive_hint=False, idempotent_hint=True, open_world_hint=False, title="Guest network on/off"
+        ),
+    ),
+    (
+        set_wps_enabled,
+        ToolAnnotations(
+            destructive_hint=False, idempotent_hint=True, open_world_hint=False, title="WPS on/off"
+        ),
+    ),
+    (
+        set_wifi_security,
+        ToolAnnotations(
+            destructive_hint=False, idempotent_hint=True, open_world_hint=False, title="Wireless security"
+        ),
+    ),
+    (
+        set_wifi_country,
+        ToolAnnotations(
+            destructive_hint=False, idempotent_hint=True, open_world_hint=False, title="Wireless country code"
+        ),
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# Dangerous — registered only when ASUSWRT_MCP_ALLOW_WRITES=1 AND
+# ASUSWRT_MCP_ALLOW_DANGEROUS=1
+# ---------------------------------------------------------------------------
+
+
+async def reboot_router(confirm: bool = False) -> dict:
+    """Reboot the router. Every connection in the house drops for about a
+    minute.
+
+    SAFETY: never call this unless the user asked for a reboot in those
+    words.
+
+    confirm=False previews and writes nothing. confirm=True requests the
+    reboot; the API only acknowledges the request, so call get_system
+    afterwards to confirm it came back up.
+    """
+    description = "REBOOT the router (drops every connection for ~60 s)"
+
+    async def op(router: Any) -> dict:
+        if not confirm:
+            return _preview(description, {})
+        result = await ops.reboot(router)
+        if not result["requested"]:
+            raise ValueError("FAILED: the router refused the reboot request")
+        return {"status": "requested", **result}
+
+    return await run(op, name="reboot_router", timeout=WRITE_TIMEOUT, write=True)
+
+
+async def upgrade_firmware(to: str, beta: bool = False, confirm: bool = False) -> dict:
+    """Download and flash new firmware.
+
+    SAFETY: this writes flash and reboots the router. Every connection in
+    the house drops for several minutes, and losing power while flash is
+    being written can brick the router. The API only acknowledges the
+    request — it reports no progress and nothing about whether the flash
+    itself succeeds. Call get_system afterwards to confirm the new version.
+
+    `to` is required and must be the exact version string from
+    check_firmware_update's `latest` — this refuses rather than flash a
+    version nobody named.
+
+    confirm=False previews what would be flashed and writes nothing.
+    confirm=True applies it.
+    """
+
+    async def op(router: Any) -> dict:
+        if not confirm:
+            # A self-contained read: firmware_upgrade (below) does its own
+            # independent fetch, meant for exactly one apply call. Preview
+            # needs to describe the change without applying, so it repeats
+            # the same fetch-and-resolve rather than reuse that function.
+            payload = await ops.firmware(router, FIRMWARE_CHECK_SECONDS)
+            current, latest = ops._resolve_upgrade_target(payload, beta)
+            if to != latest:
+                raise ValueError(
+                    "`to` does not match what the router is offering.\n"
+                    f"  requested  {to}\n"
+                    f"  offered    {latest}"
+                )
+            description = (
+                f"FLASH firmware {latest} over {current}. The router downloads from "
+                "ASUS, writes flash, then reboots. Every connection in the house "
+                "drops for several minutes. Losing power while flash is being "
+                "written can brick the router."
+            )
+            return _preview(
+                description,
+                {"current": current, "latest": latest},
+                ["Losing power during the flash can brick the router."],
+            )
+
+        result = await ops.firmware_upgrade(router, FIRMWARE_CHECK_SECONDS, to, beta)
+        return {"status": "requested", **result}
+
+    return await run(op, name="upgrade_firmware", timeout=WRITE_TIMEOUT, write=True)
+
+
+DANGEROUS: list[tuple[Callable, ToolAnnotations]] = [
+    (
+        reboot_router,
+        ToolAnnotations(destructive_hint=True, idempotent_hint=False, open_world_hint=False, title="Reboot router"),
+    ),
+    (
+        upgrade_firmware,
+        ToolAnnotations(
+            destructive_hint=True, idempotent_hint=False, open_world_hint=True, title="Upgrade firmware"
+        ),
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# Server assembly
+# ---------------------------------------------------------------------------
+
+
+def build_server(*, allow_writes: bool = False, allow_dangerous: bool = False) -> MCPServer:
+    """Assemble a fresh server with the tool set the two gates allow.
+
+    A fresh instance per call (rather than a shared module-level singleton)
+    is what makes this testable without env-var/reload gymnastics: tests
+    build a server per gate combination and inspect it directly.
+    """
+    server = MCPServer("asuswrt")
+    for fn, annotations in READS:
+        server.add_tool(fn, annotations=annotations)
+    if allow_writes:
+        for fn, annotations in WRITES:
+            server.add_tool(fn, annotations=annotations)
+        if allow_dangerous:
+            for fn, annotations in DANGEROUS:
+                server.add_tool(fn, annotations=annotations)
+    return server
+
+
+def main() -> None:
+    _configure_logging()
+    load_env()  # populate the environment before the gates are read
+    allow_writes = os.getenv("ASUSWRT_MCP_ALLOW_WRITES") == "1"
+    allow_dangerous = os.getenv("ASUSWRT_MCP_ALLOW_DANGEROUS") == "1"
+
+    server = build_server(allow_writes=allow_writes, allow_dangerous=allow_dangerous)
+    logger.info(
+        "starting: reads=%d writes=%s dangerous=%s",
+        len(READS),
+        allow_writes,
+        allow_dangerous,
+    )
+    server.run()
+
+
+if __name__ == "__main__":
+    main()
