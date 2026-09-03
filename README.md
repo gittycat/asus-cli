@@ -2,13 +2,13 @@
 
 ## TLDR
 
-> Use the SKILL if you're using Claude Code or Codex. It consumes less than 2400 tokens.
->
-> The MCP server is for AI apps or web based interfaces. It will still be lazy
-> loaded to minimise context use. That's what CC and Codex do as of Aug 2026
-> instead of loading the full schema in context.
->
-> Both include a custom python tool, **asuswrt**, to connect to a home ASUS (AsusWRT) router.  The tool can be used manually but it aimed at AI agents. As such,a few railguards and utilities were built in such as not including direct nvram set, including json output everywhere, using guessable non-verb grammar, and requiring confirmation for any config change
+Use the SKILL if you're using Claude Code or Codex. It consumes less than 2400 tokens.
+
+The MCP server is for AI apps or web based interfaces. It will still be lazy
+loaded to minimise context use. That's what CC and Codex do as of Aug 2026
+instead of loading the full schema in context.
+
+Both include a custom python tool, **asuswrt**, to connect to a home ASUS (AsusWRT) router.  The tool can be used manually but it aimed at AI agents. As such,a few railguards and utilities were built in such as not including direct nvram set, including json output everywhere, using guessable non-verb grammar, and requiring confirmation for any config change
 
 The MCP and SKILL are loaded into the context when you write **asus router** in
 your prompt. The word "router" alone is way too generic in a tech context.
@@ -19,6 +19,8 @@ It'll use the skill for requests such as
 
 This `asuswrt` python tool uses the unpublished HTTP API of the ASUS router.
 This is the same API used by the official ASUS iOS app.
+
+I'll let my agent fill in the details. Here we go...
 
 ## Router Params that can be Read
 
@@ -45,7 +47,7 @@ This is the same API used by the official ASUS iOS app.
 
 You need [uv](https://docs.astral.sh/uv/) and your router's admin password.
 
-**1. Install the program that the skill and the MCP server both drive**
+**1. Install the asuswrt cli tool
 
 ```bash
 uv tool install "asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-tools"
