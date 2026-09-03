@@ -15,7 +15,9 @@ from asuswrt.router import (
     RouterConfig,
     apply_nvram,
     config_paths,
+    detect_gateway,
     enum_name,
+    explain_router_error,
     jsonable,
     load_config,
     read_nvram,
@@ -79,16 +81,132 @@ def test_missing_password_names_every_path_it_searched(monkeypatch, tmp_path):
 def test_config_defaults_fill_in_around_the_password(monkeypatch, tmp_path):
     monkeypatch.setenv("ASUSWRT_ENV_FILE", str(_empty_env(tmp_path)))
     monkeypatch.setenv("ROUTER_PASS", "secret")
+    monkeypatch.setattr("asuswrt.router.detect_gateway", lambda: "10.0.0.1")
     for name in ("ROUTER_HOST", "ROUTER_USER", "ROUTER_SSL", "ROUTER_PORT"):
         monkeypatch.delenv(name, raising=False)
 
     config = load_config()
     assert (config.host, config.username, config.use_ssl, config.port) == (
-        "192.168.50.1",
+        "10.0.0.1",
         "admin",
         False,
         None,
     )
+
+
+def test_router_host_wins_over_the_detected_gateway(monkeypatch, tmp_path):
+    monkeypatch.setenv("ASUSWRT_ENV_FILE", str(_empty_env(tmp_path)))
+    monkeypatch.setenv("ROUTER_PASS", "secret")
+    monkeypatch.setenv("ROUTER_HOST", "10.1.1.1")
+    monkeypatch.setattr("asuswrt.router.detect_gateway", lambda: "10.0.0.1")
+
+    assert load_config().host == "10.1.1.1"
+
+
+def test_undetectable_gateway_asks_for_router_host_rather_than_guessing(
+    monkeypatch, tmp_path
+):
+    """No vendor default: a wrong guess reads as a broken router."""
+    env = _empty_env(tmp_path)
+    monkeypatch.setenv("ASUSWRT_ENV_FILE", str(env))
+    monkeypatch.setenv("ROUTER_PASS", "secret")
+    monkeypatch.delenv("ROUTER_HOST", raising=False)
+    monkeypatch.setattr("asuswrt.router.detect_gateway", lambda: None)
+
+    with pytest.raises(ConfigError) as exc:
+        load_config()
+
+    message = str(exc.value)
+    assert "ROUTER_HOST is not set" in message
+    assert str(env) in message
+    assert "192.168" not in message
+
+
+def test_detect_gateway_reads_the_default_route(monkeypatch):
+    monkeypatch.setattr(
+        "asuswrt.router.subprocess.check_output",
+        lambda *a, **k: "   route to: default\n   gateway: 10.9.9.1\n",
+    )
+    assert detect_gateway() == "10.9.9.1"
+
+
+def test_detect_gateway_skips_a_probe_that_is_not_installed(monkeypatch):
+    """Linux has no `route -n get default`; macOS has no `ip`."""
+    calls = []
+
+    def check_output(argv, **kwargs):
+        calls.append(argv[0])
+        if len(calls) == 1:
+            raise FileNotFoundError(argv[0])
+        return "default via 10.8.8.1 dev eth0\n"
+
+    monkeypatch.setattr("asuswrt.router.subprocess.check_output", check_output)
+    assert detect_gateway() == "10.8.8.1"
+    assert len(calls) == 2
+
+
+def test_detect_gateway_rejects_a_non_address(monkeypatch):
+    """A point-to-point default route reports `link#14`, not an address."""
+    monkeypatch.setattr(
+        "asuswrt.router.subprocess.check_output",
+        lambda *a, **k: "   gateway: link#14\n",
+    )
+    assert detect_gateway() is None
+
+
+def test_detect_gateway_is_none_when_every_probe_fails(monkeypatch):
+    def boom(*a, **k):
+        raise OSError("nope")
+
+    monkeypatch.setattr("asuswrt.router.subprocess.check_output", boom)
+    assert detect_gateway() is None
+
+
+# -- transport failures ----------------------------------------------------
+
+
+def test_unreachable_names_the_symptom_and_both_causes(monkeypatch):
+    """Neither cause is asserted: an observed instance was never pinned down."""
+    monkeypatch.setattr("asuswrt.router.sys.platform", "darwin")
+    monkeypatch.setenv("ROUTER_HOST", "10.0.0.1")
+
+    message = explain_router_error(RuntimeError("Cannot connect: No route to host"))
+
+    assert "No route to host" in message           # the original, kept
+    assert "EHOSTUNREACH" in message               # the symptom
+    assert "ARP" in message                        # cause one
+    assert "Local Network" in message              # cause two
+    assert "curl" in message                       # how to separate them
+    assert "10.0.0.1" in message
+    assert "usually means" not in message          # no single cause claimed
+
+
+def test_other_router_errors_are_left_alone(monkeypatch):
+    monkeypatch.setattr("asuswrt.router.sys.platform", "darwin")
+    message = explain_router_error(RuntimeError("Login refused"))
+    assert message == "Router error: Login refused"
+
+
+def test_only_the_macos_cause_is_platform_specific(monkeypatch):
+    """A stale ARP entry rejects the route on Linux too."""
+    monkeypatch.setattr("asuswrt.router.sys.platform", "linux")
+    monkeypatch.setenv("ROUTER_HOST", "10.0.0.1")
+
+    message = explain_router_error(RuntimeError("No route to host"))
+
+    assert "ARP" in message
+    assert "Local Network" not in message
+
+
+def test_unreachable_without_a_known_host_skips_the_curl_comparison(monkeypatch):
+    monkeypatch.setattr("asuswrt.router.sys.platform", "darwin")
+    monkeypatch.delenv("ROUTER_HOST", raising=False)
+    monkeypatch.setattr("asuswrt.router.detect_gateway", lambda: None)
+
+    message = explain_router_error(RuntimeError("No route to host"))
+
+    assert "curl" not in message
+    assert "the router" in message
 
 
 @pytest.mark.parametrize(

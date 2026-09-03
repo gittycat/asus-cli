@@ -54,7 +54,15 @@ from asuswrt.ops import (
     WPA_MODES,
     _bands,
 )
-from asuswrt.router import ConfigError, connect, jsonable, load_env, port_forwarding_rules, read_nvram
+from asuswrt.router import (
+    ConfigError,
+    connect,
+    explain_router_error,
+    jsonable,
+    load_env,
+    port_forwarding_rules,
+    read_nvram,
+)
 
 logger = logging.getLogger("asuswrt.mcp_server")
 
@@ -108,7 +116,7 @@ async def run(op: Op, *, name: str, timeout: float, write: bool = False) -> Any:
                 except ConfigError as e:
                     raise ToolError(str(e)) from e
                 except AsusRouterError as e:
-                    raise ToolError(f"Router error: {e}") from e
+                    raise ToolError(explain_router_error(e)) from e
                 except ValueError as e:
                     raise ToolError(str(e)) from e
     except TimeoutError as e:

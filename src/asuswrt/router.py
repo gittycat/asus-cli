@@ -2,7 +2,7 @@
 
 Credentials come from the environment (or a .env file next to the project):
 
-    ROUTER_HOST   default 192.168.50.1
+    ROUTER_HOST   default: the current default gateway
     ROUTER_USER   default admin
     ROUTER_PASS   required
     ROUTER_SSL    default false
@@ -12,7 +12,11 @@ Credentials come from the environment (or a .env file next to the project):
 from __future__ import annotations
 
 import dataclasses
+import ipaddress
 import os
+import re
+import subprocess
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from enum import Enum
@@ -46,6 +50,50 @@ class RouterConfig:
         return f"{scheme}://{self.host}{suffix}"
 
 
+# Each entry is a command that reports the default route and the pattern that
+# picks the gateway out of its output. They are tried in order and a command
+# that is absent or fails is skipped, so the same list covers macOS, the BSDs
+# and Linux without branching on sys.platform.
+_GATEWAY_PROBES: list[tuple[list[str], re.Pattern[str]]] = [
+    # macOS / BSD: "   gateway: 192.168.50.1"
+    (["route", "-n", "get", "default"], re.compile(r"^\s*gateway:\s*(\S+)", re.M)),
+    # Linux iproute2: "default via 192.168.1.1 dev eth0 ..."
+    (["ip", "-4", "route", "show", "default"], re.compile(r"\bdefault\s+via\s+(\S+)")),
+    # BSD netstat fallback: "default   192.168.50.1   UGScg   en0"
+    (["netstat", "-rn", "-f", "inet"], re.compile(r"^default\s+(\S+)", re.M)),
+]
+
+
+def detect_gateway() -> str | None:
+    """The address of the current default gateway, or None if unknown.
+
+    A home router *is* the default gateway, so this is the address to talk to
+    when the user has not named one. There is no portable API for it, hence
+    the shell probes above. Nothing is cached: the MCP server is long-lived
+    and the gateway changes when the machine moves network or a VPN comes up.
+
+    Returns None rather than falling back to a vendor default. Guessing
+    192.168.50.1 on a 192.168.1.x network produces a connection error that
+    looks like a broken router instead of an unset ROUTER_HOST.
+    """
+    for argv, pattern in _GATEWAY_PROBES:
+        try:
+            output = subprocess.check_output(
+                argv, text=True, timeout=5, stderr=subprocess.DEVNULL
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        match = pattern.search(output)
+        if not match:
+            continue
+        try:
+            # "link#14" appears here for a point-to-point default route.
+            return str(ipaddress.ip_address(match.group(1)))
+        except ValueError:
+            continue
+    return None
+
+
 def config_paths() -> list[Path]:
     """Candidate .env locations, most specific first.
 
@@ -59,6 +107,11 @@ def config_paths() -> list[Path]:
     paths.append(Path.cwd() / ".env")
     paths.append(Path.home() / ".config" / "asuswrt" / ".env")
     return paths
+
+
+def _searched_paths() -> str:
+    """The config locations, indented for the body of an error message."""
+    return "\n  ".join(str(path) for path in config_paths())
 
 
 def load_env() -> None:
@@ -81,21 +134,84 @@ def load_config() -> RouterConfig:
 
     password = os.getenv("ROUTER_PASS")
     if not password:
-        searched = "\n  ".join(str(p) for p in config_paths())
         raise ConfigError(
             "ROUTER_PASS is not set. Create a config file at one of:\n  "
-            + searched
+            + _searched_paths()
             + "\n\nStart from env.example in the repository."
+        )
+
+    host = os.getenv("ROUTER_HOST") or detect_gateway()
+    if not host:
+        raise ConfigError(
+            "ROUTER_HOST is not set and the default gateway could not be "
+            "detected. Set ROUTER_HOST to the router's address in one of:\n  "
+            + _searched_paths()
         )
 
     port = os.getenv("ROUTER_PORT")
     return RouterConfig(
-        host=os.getenv("ROUTER_HOST", "192.168.50.1"),
+        host=host,
         username=os.getenv("ROUTER_USER", "admin"),
         password=password,
         use_ssl=os.getenv("ROUTER_SSL", "false").lower() in {"1", "true", "yes"},
         port=int(port) if port else None,
     )
+
+
+# EHOSTUNREACH on macOS (65) and Linux (113). aiohttp puts the text in the
+# message; asusrouter then wraps that message in its own exception, so the
+# string is all that survives to the surface.
+_UNREACHABLE = ("no route to host", "host is unreachable", "errno 65", "errno 113")
+
+
+def explain_router_error(err: Exception) -> str:
+    """Turn a transport failure into something the reader can act on.
+
+    EHOSTUNREACH is reported the same way whether the router is absent or the
+    machine refused to route to it, and the refusal cases return instantly,
+    which reads as a dead router. Name the symptom and both known causes
+    rather than asserting one: an observed instance of this had curl reaching
+    the router while this program could not, and the cause was never pinned
+    down. See docs/troubleshooting.md.
+    """
+    message = f"Router error: {err}"
+    if not any(needle in str(err).lower() for needle in _UNREACHABLE):
+        return message
+
+    host = os.getenv("ROUTER_HOST") or detect_gateway()
+    target = host or "the router"
+
+    causes = [
+        "  * A stale ARP entry for a host on your own subnet. The kernel\n"
+        "    rejects the route until the neighbour resolves again. Retry, or\n"
+        f"    force resolution first:  ping -c 2 {target}",
+    ]
+    if sys.platform == "darwin":
+        causes.append(
+            "  * macOS Local Network privacy denying this program:\n"
+            "      System Settings > Privacy & Security > Local Network\n"
+            "    Enable your terminal, or:\n"
+            f"      {sys.executable}"
+        )
+
+    parts = [
+        message,
+        "",
+        "The connection was rejected before any packet left this machine "
+        "(EHOSTUNREACH), so the router itself may be fine. Known causes:",
+        "",
+        "\n\n".join(causes),
+    ]
+    if host:
+        parts += [
+            "",
+            "To tell them apart, run:",
+            f"     curl -sS -o /dev/null -w '%{{http_code}}\\n' http://{host}/",
+            f"A 200 from curl while asuswrt fails means the block is local to "
+            f"this program, not the network. Both failing means {host} really "
+            f"is unreachable — check ROUTER_HOST.",
+        ]
+    return "\n".join(parts)
 
 
 @asynccontextmanager

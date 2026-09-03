@@ -31,7 +31,13 @@ from asuswrt.ops import (
     WPA_MODES,
     _bands,
 )
-from asuswrt.router import ConfigError, connect, jsonable, port_forwarding_rules
+from asuswrt.router import (
+    ConfigError,
+    connect,
+    explain_router_error,
+    jsonable,
+    port_forwarding_rules,
+)
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -709,7 +715,7 @@ def main() -> None:
         print(str(err), file=sys.stderr)
         sys.exit(EXIT_CONFIG)
     except AsusRouterError as err:
-        print(f"Router error: {err}", file=sys.stderr)
+        print(explain_router_error(err), file=sys.stderr)
         sys.exit(EXIT_ERROR)
     except KeyboardInterrupt:
         sys.exit(EXIT_ERROR)

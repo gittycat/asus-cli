@@ -40,6 +40,19 @@ stop. Do not try to work around it by writing your own Python.
 If a command reports that `ROUTER_PASS` is not set, it prints the exact paths
 it searched. Relay them and stop — never ask the user for the password in chat.
 
+The router's address is the machine's default gateway, read at every run. If a
+command says `ROUTER_HOST is not set and the default gateway could not be
+detected`, ask the user for the router's address — do not guess one.
+
+**A `No route to host` error does not mean the router is down.** The route was
+rejected before any packet left the machine, which happens both when the
+router is genuinely absent and when the local machine refuses to reach it. The
+error already lists the known causes and a `curl` command that separates them.
+**Show that whole message to the user** rather than summarising it as "the
+router is unreachable" or diagnosing it yourself — the causes are not settled,
+and `docs/troubleshooting.md` records what to capture before probing, because
+probing destroys the evidence.
+
 ## Reading state
 
 The command tree is **noun then verb**, and it is regular: `show` is the only
