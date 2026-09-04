@@ -296,6 +296,12 @@ network?* on its own.
 In Codex, `/skills` lists it and `$asuswrt` invokes it explicitly; in the
 ChatGPT desktop app it appears under **Skills** in the sidebar.
 
+The skill deliberately carries only what a tool schema cannot: the settled
+policy decisions (the Trend Micro EULA, DoS protection, when a reboot or a flash
+is allowed), the CLI, and the pointers into `reference/`. Per-tool safety notes
+live in the MCP tool descriptions, and the preview-then-confirm contract is
+enforced in the server itself — so neither one restates the other.
+
 ## The MCP server
 
 It speaks MCP over **stdio**, so the host starts `asuswrt-mcp` as a child

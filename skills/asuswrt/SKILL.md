@@ -5,64 +5,55 @@ description: Inspect and control an ASUS (AsusWRT) home router over its HTTP API
 
 # ASUS router control
 
-Drive the router through the `asuswrt` command. It talks to the router's HTTP API —
-the same one the ASUS Router mobile app uses. No SSH, no web UI.
+Two surfaces reach the same router: the `asuswrt` command and the
+`mcp__asuswrt__*` tools. Both speak the router's HTTP API — the one the ASUS
+mobile app uses. No SSH, no web UI.
 
-## First: check for MCP tools
+## Which surface
 
-If `mcp__asuswrt__*` tools are present in this session, they are the same
-operations as the CLI, already typed and validated. **Prefer them.**
+**If `mcp__asuswrt__*` tools are present, prefer them** — same operations,
+typed and validated, and each tool's own description carries its safety notes
+and its preview-then-apply contract. Read the tool's description; do not
+re-derive it from here.
 
-- **Reads** — use the MCP tool. `get_overview` first for broad status, then a
-  specific tool only if you need the detailed rows.
-- **Writes** — if the matching MCP write tool exists, use it: call it once with
-  `confirm=false` to get a preview, show the user what it says, then call again
-  with `confirm=true`. Never both in one step.
-- **If the write tool is absent, MCP writes are disabled by the server's
-  gate.** Say so and stop. **Do not run the CLI mutation instead** — that
-  defeats a deliberate setting, and the user turned it off on purpose.
+**A missing write tool means writes are switched off in the server's config.**
+Say so and stop. **Do not run the CLI mutation instead** — the user turned them
+off on purpose.
 
-Use the CLI mutation path only when the user asks for the CLI specifically, and
-keep its dry-run-then-`--yes` sequence when you do. Everything below describes
-the CLI; the safety rules apply identically to the MCP tools.
+Use the CLI when no MCP tools are present, or when the user asks for it by name.
+The [rules for both surfaces](#rules-for-both-surfaces) apply either way.
 
-## Before anything else
+## The CLI
 
-Check the command exists:
+### Before anything else
 
 ```bash
 command -v asuswrt || echo "not installed"
 ```
 
 If missing, tell the user to run `uv tool install .` from the repository and
-stop. Do not try to work around it by writing your own Python.
+stop. Do not work around it by writing your own Python.
 
-If a command reports that `ROUTER_PASS` is not set, it prints the exact paths
-it searched. Relay them and stop — never ask the user for the password in chat.
+If a command reports that `ROUTER_PASS` is not set, it prints the exact paths it
+searched. Relay them and stop — never ask the user for the password in chat.
 
 The router's address is the machine's default gateway, read at every run. If a
-command says `ROUTER_HOST is not set and the default gateway could not be
-detected`, ask the user for the router's address — do not guess one.
+command says the gateway could not be detected, ask the user for the router's
+address — do not guess one.
 
 **A `No route to host` error does not mean the router is down.** The route was
-rejected before any packet left the machine, which happens both when the
-router is genuinely absent and when the local machine refuses to reach it. The
-error already lists the known causes and a `curl` command that separates them.
-**Show that whole message to the user** rather than summarising it as "the
-router is unreachable" or diagnosing it yourself — the causes are not settled,
-and `docs/troubleshooting.md` records what to capture before probing, because
+rejected before any packet left the machine, which happens both when the router
+is genuinely absent and when the local machine refuses to reach it. The error
+already lists the known causes and a `curl` command that separates them. **Show
+that whole message to the user** rather than summarising it as "the router is
+unreachable" or diagnosing it yourself — the causes are not settled, and
+`docs/troubleshooting.md` records what to capture before probing, because
 probing destroys the evidence.
 
-## Reading state
+### Reading state
 
-The command tree is **noun then verb**, and it is regular: `show` is the only
-read verb, and a bare noun means `show`. You never have to guess which command
-holds a reading — pick the noun.
-
-```
-asuswrt show          # every reading below, in one connection
-asuswrt <noun>        # same as `asuswrt <noun> show`
-```
+The command tree is **noun then verb**, and `show` is the only read verb, so a
+bare noun means `show`. Pick the noun; you never have to guess the command.
 
 | Noun | What it reads |
 |---|---|
@@ -78,37 +69,23 @@ asuswrt <noun>        # same as `asuswrt <noun> show`
 | `firmware` | installed version and what ASUS is offering right now |
 | `nvram get <var> ...` | any raw setting the nouns do not cover |
 
-**Start with `asuswrt show`** for anything resembling "how is the router" or
-"is everything OK". Each noun is a separate process and therefore a separate
-login to the router, so eight nouns cost eight handshakes; `show` costs one.
-It leaves out the firmware check (see below) and prints a client count rather
-than the table — run `asuswrt clients` when you need the devices themselves.
+**Start with `asuswrt show`** for anything resembling "how is the router". Each
+noun is a separate process and therefore a separate login, so eight nouns cost
+eight handshakes and `show` costs one. It omits the firmware check and prints a
+client count rather than the client table.
 
-Add `--json` to any read when you need to parse it. `asuswrt --json show`
-returns one object keyed by noun. Prefer the plain output when reporting to
-the user — it is already formatted for reading.
+Add `--json` when you need to parse; `asuswrt --json show` returns one object
+keyed by noun. Report the plain output — it is already formatted for reading.
 
-Two readings are slow, and both say why:
+Two readings are slow, and say why: `system health` and `show` take ~2 s (CPU
+is a delta between two samples), `firmware` ~7 s (it makes the router query
+ASUS rather than trust the months-stale nvram copy). Older names — `info`,
+`status`, `pf list`, `guest list`, `firmware info`, `nvram <var>` — still work,
+but write the names above.
 
-- `asuswrt system health` and `asuswrt show` take ~2 s. CPU usage is a delta
-  between two samples, so the command deliberately samples twice.
-- `asuswrt firmware` takes ~7 s. It makes the router query ASUS every time and
-  ignores the copy in nvram, which is only refreshed by a periodic check that
-  is off by default and is therefore routinely months stale. There is no
-  cached mode: a version you might flash from has to be the current one.
-  `asuswrt show --firmware` folds this check into the sweep.
+### Changing state
 
-At a terminal the slow calls show a spinner on stderr; piped or captured they
-print nothing extra, so what you receive is unaffected.
-
-Older names still work and still do the same thing — `info`, `status`,
-`pf list`, `guest list`, `firmware info`, `nvram <var>` — but use the names
-above when you write a command.
-
-## Changing state
-
-**No mutating command acts on its own.** Each one either asks first or
-refuses:
+**No mutating command acts on its own.** Each one either asks first or refuses:
 
 | Situation | What happens |
 |---|---|
@@ -116,9 +93,10 @@ refuses:
 | A person at a terminal | Prints what it would do, prompts `[y/N]` |
 | **No terminal, no `--yes`** | Prints what it would do, **exits 3**, touches nothing |
 
-You are the third row. A bare mutating command is therefore a safe dry run,
-and exit 3 means "refused for want of consent" — distinct from exit 1, which
-means it tried and failed.
+You are the third row, so running a mutation bare is a safe dry run, and exit 3
+means "refused for want of consent" — distinct from exit 1, which means it tried
+and failed. Show the user that output, ask, then re-run with `--yes`. Never
+chain the two in one step.
 
 ```bash
 asuswrt portforward add --name Plex --port 32400 --to-ip 192.168.50.20        # dry run, exits 3
@@ -146,40 +124,31 @@ asuswrt reboot --yes
 `portforward` is also spelled `pf`, and `set-security` / `set-country` also
 answer to `security` / `country`.
 
-### Rules you must follow
+## Rules for both surfaces
 
-1. **Run the dry run first, show the user its output, then ask before adding
-   `--yes`.** Do not chain them in one step.
-2. **Never run `asuswrt reboot`** unless the user asked for a reboot in those
-   words. It drops every connection in the house for about a minute.
-3. **Port forwarding exposes a device to the internet.** Before adding a rule,
-   say which device and port become reachable. If the target port is 22, 3389,
-   445 or a database port, say so plainly and confirm the user intends it.
-4. **Check `asuswrt portforward` first.** The global switch can be OFF, in which
-   case rules exist but do nothing — `asuswrt portforward add` warns about this,
-   but say it too.
-5. **`asuswrt nvram get` is read-only on purpose.** Writes exist only as named
-   commands — `portforward`, `guest`, `parental`, `wifi`. If a setting has no
-   command, say it needs the web UI rather than improvising a raw write.
-6. **Never run `asuswrt firmware upgrade` unless the user asked to upgrade the
-   firmware in those words.** It writes flash and reboots; a power cut partway
-   bricks the router. Show `asuswrt firmware --notes` first so the user sees
-   the version and the release note, then the dry run, then ask. Because you
-   have no terminal, `--yes` also requires `--to` naming the exact offered
-   version — read it from `asuswrt firmware`, never guess it. When the
-   command returns, say the upgrade was *requested*: the API reports nothing
-   about the download or the flash, and only `asuswrt system` after the reboot
-   shows whether it worked.
-
-   Reporting the firmware version is only worth doing to answer one question:
-   is there a newer version to install? Say the installed version, the offered
-   version, and whether an upgrade is available. If the two match, say it is up
-   to date and stop there.
-7. **`asuswrt wifi set-security` and `asuswrt wifi set-country` restart both radios.** Every
-   wireless client drops and reconnects. Say so before applying. These write
-   nvram directly, so the command reads each value back afterwards and prints
-   `before -> after`; a country code write in particular is often refused by
-   stock firmware, and the read-back is what tells you whether it took.
+1. **Never reboot** unless the user asked for a reboot in those words. It drops
+   every connection in the house for about a minute.
+2. **Never upgrade firmware** unless the user asked to upgrade in those words.
+   Show the release note first (`asuswrt firmware --notes`), then the preview,
+   then ask. Having no terminal, you must also pass `--to` with the exact
+   offered version — read it from `asuswrt firmware`, never guess it. Report the
+   result as *requested*: the API says nothing about the
+   download or the flash, and only reading `system` after the reboot shows
+   whether it worked. Reporting a firmware version is worth doing only to answer
+   one question — is there a newer version to install? Give the installed
+   version, the offered version, and whether an upgrade is available; if they
+   match, say it is up to date and stop there.
+3. **Port forwarding exposes a device to the internet.** Say which device and
+   port become reachable before adding a rule, and confirm the user means it
+   when the target is 22, 3389, 445 or a database port. Check the global switch
+   too — rules exist but do nothing while it is off.
+4. **nvram access is read-only on purpose.** Writes exist only as named
+   commands. If a setting has no command, say it needs the web UI rather than
+   improvising a raw write.
+5. **Changing WiFi security or country restarts both radios**, dropping every
+   wireless client. Say so before applying. Both read the value back and report
+   `before -> after`; a country code write is often refused by stock firmware,
+   and that read-back is the only thing that tells you.
 
 ## Features to leave off
 
@@ -199,25 +168,21 @@ connections and ICMP to roughly one per second. The professional consensus on
 SNBForums is that this will not stop a real flood — the uplink saturates
 regardless — while it does break legitimate traffic, with users reporting they
 had to disable it for Cloudflare and for media servers. Off is the AsusWRT
-default and the right setting for a home router. Someone genuinely under
-attack needs their ISP, not this checkbox. Sources are in
+default and the right setting for a home router. Someone genuinely under attack
+needs their ISP, not this checkbox. Sources are in
 [reference/settings.md](reference/settings.md#features-with-a-settled-answer).
 
 ## When something is not covered
 
-The CLI covers the common cases, not all of AsusWRT. For anything else:
-
-- Read the current value with `asuswrt nvram get <var>` to confirm what the
-  setting is called and how it is encoded.
-- Look it up in [reference/settings.md](reference/settings.md), which lists the
-  variables, their encodings and which are verified against real hardware.
-- If it needs a write the CLI does not implement, say so rather than improvising.
-
-Worked examples for common requests are in
-[reference/recipes.md](reference/recipes.md).
+The tools cover the common cases, not all of AsusWRT. For anything else, read
+the value with `nvram get <var>` to confirm its name and encoding, then look it
+up in [reference/settings.md](reference/settings.md) — variables, encodings, and
+which are verified against real hardware. If it needs a write that does not
+exist, say so rather than improvising. Worked examples for common requests are
+in [reference/recipes.md](reference/recipes.md).
 
 ## Reporting back
 
 Answer with the numbers, not the raw dump. "14 devices online, WAN is connected
-at 203.0.113.4, CPU 3%" beats pasting a JSON blob. Show the table from
-`asuswrt clients` when the user asks who is on the network — it is already a table.
+at 203.0.113.4, CPU 3%" beats pasting a JSON blob. Show the client table when
+the user asks who is on the network — it is already a table.
