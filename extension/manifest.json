@@ -1,0 +1,94 @@
+{
+  "$schema": "https://raw.githubusercontent.com/anthropics/mcpb/main/dist/mcpb-manifest-v0.3.schema.json",
+  "manifest_version": "0.3",
+  "name": "asuswrt",
+  "display_name": "ASUS Router Control",
+  "version": "0.6.0",
+  "description": "Inspect and control an ASUS (AsusWRT) home router: connected devices, WAN, firewall, port forwarding, guest WiFi and WiFi security.",
+  "long_description": "Talks to the router's HTTP API — the same one the official ASUS mobile app uses. No SSH and no web-UI scraping.\n\nThis bundle is the wiring, not the server: install the server first with `uv tool install \"asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-tools\"`, and put the router's admin password in `~/.config/asuswrt/.env`. The password is read on this machine only and is never sent to a model.\n\nThe extension is read-only until you turn on \"Allow changes to the router\". Even then, every change is returned as a preview first and applied only on a second, confirmed call.",
+  "author": {
+    "name": "gittycat",
+    "url": "https://github.com/gittycat"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gittycat/asuswrt-tools"
+  },
+  "homepage": "https://github.com/gittycat/asuswrt-tools",
+  "documentation": "https://github.com/gittycat/asuswrt-tools#readme",
+  "support": "https://github.com/gittycat/asuswrt-tools/issues",
+  "icon": "icon.png",
+  "license": "MIT",
+  "keywords": ["asus", "asuswrt", "router", "network", "wifi", "port-forwarding", "home-network"],
+  "server": {
+    "type": "binary",
+    "entry_point": "server/launch.sh",
+    "mcp_config": {
+      "command": "/bin/sh",
+      "args": ["${__dirname}/server/launch.sh"],
+      "env": {
+        "ASUSWRT_MCP_BIN": "${user_config.server_path}",
+        "ASUSWRT_MCP_ALLOW_WRITES": "${user_config.allow_writes}",
+        "ASUSWRT_MCP_ALLOW_DANGEROUS": "${user_config.allow_dangerous}"
+      },
+      "platform_overrides": {
+        "win32": {
+          "command": "cmd.exe",
+          "args": ["/c", "${__dirname}\\server\\launch.cmd"]
+        }
+      }
+    }
+  },
+  "user_config": {
+    "server_path": {
+      "type": "string",
+      "title": "Path to asuswrt-mcp",
+      "description": "Where uv put the server. Leave as it is unless you installed it somewhere else.",
+      "default": "${HOME}/.local/bin/asuswrt-mcp",
+      "required": false
+    },
+    "allow_writes": {
+      "type": "boolean",
+      "title": "Allow changes to the router",
+      "description": "Off: Claude can only read the router. On: it can also add port forwards, switch guest WiFi on or off, and change WiFi security — always showing a preview and asking before it applies anything.",
+      "default": false,
+      "required": false
+    },
+    "allow_dangerous": {
+      "type": "boolean",
+      "title": "Allow reboot and firmware upgrade",
+      "description": "Needs the setting above as well. Adds two tools that restart the router or flash new firmware.",
+      "default": false,
+      "required": false
+    }
+  },
+  "tools_generated": false,
+  "tools": [
+    { "name": "get_overview", "description": "Broad status in one call: identity, health, WAN and client counts" },
+    { "name": "get_system", "description": "Model, firmware version, MAC and AiMesh role" },
+    { "name": "get_health", "description": "Uptime, CPU per core, RAM and WAN link state" },
+    { "name": "get_wan", "description": "Internet connection: link state, IP, gateway, DNS, protocol" },
+    { "name": "list_clients", "description": "Connected and known devices with name, vendor, IP and connection type" },
+    { "name": "get_firewall_and_filters", "description": "Firewall, DoS protection, WAN admin access, URL and keyword filters" },
+    { "name": "get_parental_control", "description": "Parental control state and its rules" },
+    { "name": "list_port_forwards", "description": "Port forwarding rules, and whether forwarding is on at all" },
+    { "name": "list_guest_networks", "description": "Guest wireless networks per band, with SSID and state" },
+    { "name": "get_wireless", "description": "WPS, WPA mode, management frame protection and country code" },
+    { "name": "check_firmware_update", "description": "Ask the router to check ASUS for a newer firmware, with release notes" },
+    { "name": "get_nvram", "description": "Read raw router settings by name (read-only; there is no raw write)" },
+    { "name": "add_port_forward", "description": "Forward an external port to a device on the LAN" },
+    { "name": "remove_port_forward", "description": "Remove port forwarding rules by name and/or external port" },
+    { "name": "set_port_forwarding_enabled", "description": "Turn port forwarding on or off globally, keeping the rules" },
+    { "name": "set_parental_control_enabled", "description": "Turn parental control on or off" },
+    { "name": "set_guest_network_enabled", "description": "Turn one guest wireless network on or off" },
+    { "name": "set_wps_enabled", "description": "Turn Wi-Fi Protected Setup on or off on both bands" },
+    { "name": "set_wifi_security", "description": "Set the WPA mode and 802.11w management frame protection" },
+    { "name": "set_wifi_country", "description": "Set the regulatory country code" },
+    { "name": "reboot_router", "description": "Reboot the router, dropping every connection in the house" },
+    { "name": "upgrade_firmware", "description": "Download and flash a named firmware version" }
+  ],
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "win32"]
+  }
+}

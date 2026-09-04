@@ -21,6 +21,11 @@ Gates, read once at startup (changing them means restarting the server):
     ASUSWRT_MCP_ALLOW_DANGEROUS=1   (together with the gate above) registers
                                      reboot_router and upgrade_firmware
 
+`1`, `true`, `yes` and `on` open a gate, case and surrounding space ignored;
+everything else leaves it shut. The MCP Bundle passes a checkbox through as
+`true`/`false`, and an unsubstituted `${user_config...}` template has to read
+as off rather than as a non-empty string.
+
 Every write tool takes confirm: bool = False. Without it, the tool connects,
 reads what the change would touch, and returns a preview — it writes
 nothing. With confirm=True it applies. See Appendix B of
@@ -695,11 +700,19 @@ def build_server(*, allow_writes: bool = False, allow_dangerous: bool = False) -
     return server
 
 
+_GATE_OPEN = frozenset({"1", "true", "yes", "on"})
+
+
+def gate_open(name: str) -> bool:
+    """A gate opens only on an explicit yes. Anything else keeps it shut."""
+    return os.getenv(name, "").strip().lower() in _GATE_OPEN
+
+
 def main() -> None:
     _configure_logging()
     load_env()  # populate the environment before the gates are read
-    allow_writes = os.getenv("ASUSWRT_MCP_ALLOW_WRITES") == "1"
-    allow_dangerous = os.getenv("ASUSWRT_MCP_ALLOW_DANGEROUS") == "1"
+    allow_writes = gate_open("ASUSWRT_MCP_ALLOW_WRITES")
+    allow_dangerous = gate_open("ASUSWRT_MCP_ALLOW_DANGEROUS")
 
     server = build_server(allow_writes=allow_writes, allow_dangerous=allow_dangerous)
     logger.info(

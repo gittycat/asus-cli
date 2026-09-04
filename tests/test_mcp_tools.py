@@ -161,6 +161,27 @@ def test_dangerous_gate_alone_registers_nothing_extra():
     assert names == READ_NAMES
 
 
+@pytest.mark.parametrize("value", ["1", "true", "TRUE", " yes ", "on"])
+def test_gate_opens_on_an_explicit_yes(monkeypatch, value):
+    monkeypatch.setenv("ASUSWRT_MCP_ALLOW_WRITES", value)
+    assert mcp_server.gate_open("ASUSWRT_MCP_ALLOW_WRITES") is True
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["", "0", "false", "no", "off", "${user_config.allow_writes}", "maybe"],
+)
+def test_gate_stays_shut_on_anything_else(monkeypatch, value):
+    """An unsubstituted bundle template must read as off, not as a non-empty string."""
+    monkeypatch.setenv("ASUSWRT_MCP_ALLOW_WRITES", value)
+    assert mcp_server.gate_open("ASUSWRT_MCP_ALLOW_WRITES") is False
+
+
+def test_gate_stays_shut_when_unset(monkeypatch):
+    monkeypatch.delenv("ASUSWRT_MCP_ALLOW_WRITES", raising=False)
+    assert mcp_server.gate_open("ASUSWRT_MCP_ALLOW_WRITES") is False
+
+
 def test_every_read_tool_is_read_only_annotated():
     server = mcp_server.build_server()
     for tool in asyncio.run(server.list_tools()):

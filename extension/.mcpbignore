@@ -1,0 +1,3 @@
+# Kept out of the bundle: the packer, and any bundle built earlier.
+build.py
+*.mcpb

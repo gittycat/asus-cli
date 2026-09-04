@@ -1,51 +1,27 @@
 # ASUS Router MCP and SKILL for AI Agents
 
-## TLDR
+Allows you to control a local Asus WRT home router via AI prompts instead of using the Asus web admin interface or ios app.
 
-Use the SKILL if you're using Claude Code or Codex. It consumes 2900 tokens when loaded.
+Use the SKILL for CLI coding agents like Claude Code, Codex. Use the MCP for AI chat agents like ChatGPT, Gemini app, ...
 
-The MCP server takes slightly more tokens at 3200. Still light. Also, MCP definitions are now lazy loaded by Claude Code and Codex. The calls are optimised for fewer round trips which results in token savings too.
+They both use the included small python program, `asuswrt` that speaks the router's
+unpublished HTTP API — the same one the official ASUS mobile app uses. No SSH,
+no scraping the web UI. It ships two ways:
 
-Both include a custom python tool, **asuswrt**, to connect to a home ASUS (AsusWRT) router.  The tool can be used manually but it aimed at AI agents. As such,a few railguards and utilities were built in such as not including direct nvram set, including json output everywhere, using guessable non-verb grammar, and requiring confirmation for any config change
+Install either one. Installing both is fine, and is what the Claude Code plugin
+does — the skill prefers the MCP tools when it finds them.
 
-The MCP and SKILL are loaded into the context when you write **asus router** or try to inspect your "local network" or "wifi". The word "router" alone won't load the skill. It is way too generic in a tech context.
-That would likely result in the skill being needlessly loaded
-for unrelated requests. Once loaded, the model doesn't need the asus hint.
-It'll use the skill for requests such as
-`who's on my WiFi?` or `what devices are on my home network?`
-
-This `asuswrt` python tool uses the unpublished HTTP API of the ASUS router.
-This is the same API used by the official ASUS iOS app.
-
-I'll let my agent fill in the details. Here we go...
+---
 
 ## Installation
 
-You need [uv](https://docs.astral.sh/uv/) and your router's admin password.
+You need [uv](https://docs.astral.sh/uv/), your router's **admin** password, and
+a machine on the same network as the router.
 
-Step 1 and step 2 are always required. After that, install the skill, the MCP
-server, or both.
+Save the password first — everything needs it. After that the **skill** and the
+**MCP server** are independent: install one, the other, or both, in any order.
 
-### Step 1 — Install the asuswrt program
-
-```bash
-uv tool install "asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-tools"
-```
-
-Or from a local clone:
-
-```bash
-git clone https://github.com/gittycat/asuswrt-tools
-uv tool install "./asuswrt-tools[mcp]" --force
-```
-
-This puts `asuswrt`, `asuswrt-mcp` and `asuswrt-probe` in `~/.local/bin`. Run
-`uv tool update-shell` once if that directory is not on your `PATH`.
-
-The `[mcp]` extra pulls in the MCP SDK. Leave it off if you only want the CLI
-and the skill.
-
-### Step 2 — Save your router credentials
+### Save your router password — required
 
 ```bash
 mkdir -p ~/.config/asuswrt
@@ -53,126 +29,130 @@ cat > ~/.config/asuswrt/.env <<'EOF'
 ROUTER_USER=admin
 ROUTER_PASS=your-router-password
 EOF
-
-asuswrt system    # should print your model, firmware and MAC
 ```
 
+That is the whole configuration — the router's address is your machine's default
+gateway, detected on every run. Use the router's **admin** account; a limited
+family-member account cannot log in.
 
-Config lookup order, first match wins:
+### Install the skill
 
-1. `$ASUSWRT_ENV_FILE`, if you set it
-2. `.env` in the current directory
-3. `~/.config/asuswrt/.env`
-
-The CLI and the MCP server read the same file from the same places.
-If `asuswrt system` returns a login
-error, check that the account is the router **admin**, not a limited family
-member.
-
-### Step 3a — Install as a skill
-
-**Claude Code** — install from the marketplace:
+**Claude Code**
 
 ```bash
+uv tool install "asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-tools"
 claude plugin marketplace add gittycat/asuswrt-tools
 claude plugin install asuswrt@asuswrt
 ```
 
-This also registers the MCP server, so you can skip step 3b.
-Update later with `claude plugin marketplace update asuswrt`.
+The plugin carries the skill **and** registers the MCP server, read-only, so on
+Claude Code this is the whole installation. Register the server yourself, below,
+only if you want the agent to be able to change router settings.
 
-**Codex** — skills are plain folders. Copy this one into `~/.agents/skills`:
+**Codex** — skills are plain folders, so copy this one in:
 
 ```bash
+uv tool install "asuswrt @ git+https://github.com/gittycat/asuswrt-tools"
+
 git clone --depth 1 https://github.com/gittycat/asuswrt-tools /tmp/asuswrt-tools
 mkdir -p ~/.agents/skills
 cp -r /tmp/asuswrt-tools/skills/asuswrt ~/.agents/skills/
 rm -rf /tmp/asuswrt-tools
 ```
 
-Codex picks it up from `~/.agents/skills` on the next start, in the CLI and in
-the IDE extension. Run `/skills` to confirm it is listed, or invoke it
-explicitly with `$asuswrt`. In the ChatGPT desktop app, skills appear under
-**Skills** in the sidebar.
+Restart Codex. `/skills` should now list `asuswrt`.
 
-### Step 3b — Install as an MCP server
+### Install the MCP server
 
-The server is `asuswrt-mcp`. It speaks MCP over **stdio**, so the host starts
-it as a child process — there is no URL and no network listener.
+**Claude Code**
 
-**Claude Code (terminal):**
+```bash
+uv tool install "asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-tools"
+claude mcp add --scope user asuswrt -- asuswrt-mcp
+```
+
+That server is read-only. To let the agent change settings too, insert
+`--env ASUSWRT_MCP_ALLOW_WRITES=1` before the name:
 
 ```bash
 claude mcp add --env ASUSWRT_MCP_ALLOW_WRITES=1 --scope user asuswrt -- asuswrt-mcp
 ```
 
-Drop the `--env` flag for a read-only server, which is the recommended default.
-
-**Claude Desktop (app):** open **Settings → Developer → Edit Config**, then add:
-
-```json
-{
-  "mcpServers": {
-    "asuswrt": {
-      "command": "/Users/you/.local/bin/asuswrt-mcp",
-      "env": {
-        "ASUSWRT_MCP_ALLOW_WRITES": "1"
-      }
-    }
-  }
-}
-```
-
-Use the absolute path. GUI apps do not inherit your shell `PATH`.
-
-**Codex (terminal):**
+**Codex**
 
 ```bash
+uv tool install "asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-tools"
+codex mcp add asuswrt -- asuswrt-mcp
+
+# or, allowing writes:
 codex mcp add asuswrt --env ASUSWRT_MCP_ALLOW_WRITES=1 -- asuswrt-mcp
 ```
 
-Or edit `~/.codex/config.toml` directly:
+**Claude Desktop** (macOS and Windows — there is no Linux build) — install the
+server, then the one-click extension:
 
-```toml
-[mcp_servers.asuswrt]
-command = "asuswrt-mcp"
-env = { ASUSWRT_MCP_ALLOW_WRITES = "1" }
+```bash
+uv tool install "asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-tools"
+curl -LO https://raw.githubusercontent.com/gittycat/asuswrt-tools/main/extension/asuswrt.mcpb
+open asuswrt.mcpb     # macOS. On Windows: start asuswrt.mcpb
 ```
 
-**Codex app and IDE extension:** in the ChatGPT desktop app, **Settings → MCP
-servers → Add server**; in the IDE extension, the gear menu → **MCP servers →
-Add server**. Choose **STDIO**, name it `asuswrt`, give the absolute path to
-`asuswrt-mcp` as the command, then restart.
+Claude Desktop opens an install dialog with three settings: the path to
+`asuswrt-mcp`, already filled in, and two switches that are off —
+**Allow changes to the router** and **Allow reboot and firmware upgrade**. Turn
+the first on if you want the agent to be able to change settings, and leave the
+second off unless you mean it.
 
-### Other agents
+If double-clicking does nothing, or you would rather download the file in a
+browser, use **Settings → Extensions → Advanced settings → Install Extension…**
+and pick it. Editing
+`claude_desktop_config.json` by hand still works too, and is
+[in the details below](#claude-desktop-by-hand).
 
-Any host that implements the [Agent Skills](https://agentskills.io) or MCP
-specs works unchanged — the skill is the `skills/asuswrt` folder, the server is
-`asuswrt-mcp`.
+### Check it works
 
-### Try it
-
-```
-Review the security settings on my Asus router
-
-What devices are connected to my Asus router?
-
-Open port 32400 on the asus for my media server
+```bash
+asuswrt system     # your model, firmware and MAC
 ```
 
-**IMPORTANT** Mention **asus** in your first request so the skill loads into
-context. After that the agent knows to keep using it.
+If that prints your router, the agent side works too.
 
 ---
 
-## The asuswrt tool
+## Try it
 
-The tool works on its own, without an agent.
+Say **asus** in your first request so the skill or the tools load. After that
+the agent keeps using them on its own.
 
-### Reading
+Ask:
+
+```
+What devices are connected to my Asus router?
+Review the security settings on my Asus router
+Is my Asus router's firmware up to date?
+Is the asus router's admin page reachable from the internet?
+The internet feels slow — check the asus router's CPU, memory and WAN
+```
+
+Change:
+
+```
+Open port 32400 on the asus for my media server
+Turn on the guest WiFi on the asus for my visitors
+Turn off WPS on my Asus router
+Close the Plex port on the asus again
+```
+
+Every change is previewed first and applied only after you agree.
+
+---
+
+## Using it without an agent
+
+The same program works as an ordinary command.
 
 ```bash
-asuswrt show                    # everything below in one connection
+asuswrt show                    # everything below, in one connection
 asuswrt system                  # model, firmware, mac, aimesh
 asuswrt system health           # uptime, cpu, ram, wan
 asuswrt clients --online        # who's connected
@@ -188,9 +168,7 @@ asuswrt nvram get vts_rulelist  # any raw setting, by name
 
 Add `--json` to any of them for machine-readable output.
 
-### Changing
-
-Changes take two steps by design. The first run is always a dry run:
+Changes take two runs. The first is always a dry run:
 
 ```bash
 asuswrt portforward add --name Plex --port 32400 --to-ip 192.168.50.20
@@ -200,122 +178,63 @@ asuswrt portforward add --name Plex --port 32400 --to-ip 192.168.50.20 --yes
 # → applies it
 ```
 
-What can be changed:
-
-- **Port forwarding** — add, remove, enable or disable globally
-- **Guest WiFi** — enable or disable any of the six networks
-- **WiFi security** — WPS, WPA2/WPA3 mode, frame protection, country code
-- **Parental control** — enable or disable
-- **Firmware upgrade**, and **reboot**
+What can be changed at all: **port forwarding** (add, remove, enable, disable),
+**guest WiFi** (any of the six networks), **WiFi security** (WPS, WPA2/WPA3
+mode, frame protection, country code), **parental control** (on or off),
+**firmware upgrade** and **reboot**.
 
 ---
 
-## MCP server
+## Built for agents
 
-### Two gates
+A human reading a router's web UI notices when something looks wrong. An agent
+does not. So the judgement lives in the tool, where a model cannot talk its way
+around it, rather than in instructions it is asked to follow.
 
-Read tools are always available. Everything else is off unless you turn it on:
-
-| Environment variable | Adds |
-| --- | --- |
-| *(none)* | 12 read tools |
-| `ASUSWRT_MCP_ALLOW_WRITES=1` | + 8 write tools |
-| `ASUSWRT_MCP_ALLOW_DANGEROUS=1` | + `reboot_router`, `upgrade_firmware` — **also needs the writes gate**; on its own it does nothing |
-
-The gates *hide* tools rather than reject calls, so a tool you have not enabled
-costs no context and cannot be retried into working. **They are read once at
-startup** — change one and restart the server, or the host, for it to take
-effect.
-
-### Tools
-
-```
-reads (always)       get_overview  get_system  get_health  get_wan
-                     list_clients  get_firewall_and_filters
-                     get_parental_control  list_port_forwards
-                     list_guest_networks  get_wireless
-                     check_firmware_update  get_nvram
-
-writes (gate 1)      add_port_forward  remove_port_forward
-                     set_port_forwarding_enabled  set_parental_control_enabled
-                     set_guest_network_enabled  set_wps_enabled
-                     set_wifi_security  set_wifi_country
-
-dangerous (both)     reboot_router  upgrade_firmware
-```
-
-Start with `get_overview` — it is a summary (client *counts*, no firmware
-check, no raw nvram) and costs one login. `check_firmware_update` makes the
-router contact ASUS and takes about 5 seconds.
-
-### Every write is two calls
-
-Write tools take `confirm: bool = False`, and without it they **change
-nothing**:
-
-```jsonc
-// confirm omitted → preview only
-{"status": "preview", "applied": false,
- "change": "…one sentence…", "warnings": ["…"], "current": {…}}
-
-// confirm: true → applied, with before/after for nvram writes
-{"status": "applied", "applied": true, …}
-```
-
-This mirrors the CLI's dry-run-then-`--yes` rule, and it stays in the server
-because it cannot be delegated to the host: the MCP spec treats tool
-annotations as *hints*, and some hosts auto-approve. `upgrade_firmware`
-additionally requires `to` — the exact version string from
-`check_firmware_update` — so nothing ever flashes whatever happened to turn up.
-
----
-
-## About safety
-
-An AI agent is expected to be driving this, so the guardrails live in the tool
-itself rather than in instructions a model can talk itself out of.
-
-- **Nothing changes unless you say so.** `--yes` applies a change. At a
-  terminal you get a `[y/N]` prompt. With neither, the command prints what it
-  *would* do, changes nothing, and exits with code 3. Silence never counts as
-  approval, so running a command without `--yes` is always safe.
-- **No raw writes.** You can read any router setting with `asuswrt nvram get`,
-  but there is deliberately no write equivalent. Writing raw settings blindly
-  is the usual way a working router config gets wrecked. Only the reviewed,
-  named commands can write.
-- **Changes are checked, not assumed.** The router saying it accepted a change
-  does not mean the change stuck — the WiFi country code, for example, is
-  routinely accepted and then quietly ignored. Every `asuswrt wifi` command
-  reads the setting back afterwards, prints `before -> after`, and fails if
-  nothing actually changed.
-- **Duplicate ports are caught.** Forwarding a port that is already forwarded
-  fails unless you add `--force`.
-- **Reboots only when you ask for one.** The skill tells the agent never to
-  reboot unless you used the word.
-- **Your password stays on your machine.** It lives in a `.env` file outside
-  this repository, is read only by the tool running locally, and is never sent
-  to a model.
+- **Nothing changes unless you say so.** A mutation without `--yes` prints what
+  it *would* do and exits 3; an MCP write without `confirm: true` returns a
+  preview. Silence is never approval, so any command is safe to run once.
+- **No raw writes.** `asuswrt nvram get` reads any setting on the router, and
+  there is deliberately no `set`. Blind raw writes are how a working router
+  config gets wrecked. Only the reviewed, named commands can change anything.
+- **Changes are read back, not assumed.** The router happily accepts a WiFi
+  country code and then ignores it. Every WiFi command re-reads the setting,
+  prints `before -> after`, and fails if nothing moved.
+- **Predictable, guessable grammar.** Noun then verb, `show` as the only read
+  verb, `--json` on every read. An agent can reach the right command without
+  hunting through help output, and never has to parse a table.
+- **The likely mistakes are blocked in code.** A duplicate port needs
+  `--force`; `upgrade_firmware` needs the exact version string that the check
+  returned; the skill forbids rebooting unless you used the word; MCP write
+  tools are hidden rather than refused, so an agent cannot retry one into
+  working.
+- **Errors carry their own diagnosis.** `No route to host`, for example, has
+  several causes, and the message lists them plus a `curl` check that separates
+  them — so the agent relays a real answer instead of inventing one.
+- **Your password stays local.** It lives in a `.env` file outside this
+  repository, is read only by the program running on your machine, and is never
+  sent to a model.
 
 ---
 
 ## Limitations
 
-- **One request at a time.** Every command and every MCP tool call logs in,
-  does its work, and logs out, costing about a second. That is fine for asking
-  a few questions; it is the wrong tool for continuous monitoring.
-- **Personal use, not a service.** It is built for one person and one router.
-  Do not put it behind a web app or share it between users.
-- **One router per config.** The detected gateway, or `ROUTER_HOST`, is a
-  single address. Individual AiMesh nodes cannot be addressed.
-- **`No route to host` has more than one cause.** The error is returned both
-  by an absent router and by a local machine that refuses to route to it —
-  a stale ARP entry, or macOS Local Network privacy. The message lists both
-  and a `curl` check that separates them. See `docs/troubleshooting.md`.
-- **Content filters are read-only.** URL and keyword filter rules can be read
-  but not changed, and the setting names for them are unconfirmed. If
-  `asuswrt firewall` shows `? (None)`, the name is wrong for your firmware.
-- **Parental control is one switch.** Turning it on or off works; per-device
-  rules still need the web UI.
+- **One request at a time.** Every command and every MCP tool call logs in, does
+  its work, and logs out, costing about a second. Fine for asking a few
+  questions; the wrong tool for continuous monitoring.
+- **Personal use, not a service.** One person, one router. Do not put it behind
+  a web app or share it between users.
+- **One router per config.** The detected gateway, or `ROUTER_HOST`, is a single
+  address. Individual AiMesh nodes cannot be addressed.
+- **`No route to host` has more than one cause.** It is returned both by an
+  absent router and by a local machine that refuses to route to it — a stale ARP
+  entry, or macOS Local Network privacy. See
+  [`docs/troubleshooting.md`](docs/troubleshooting.md).
+- **Content filters are read-only.** URL and keyword rules can be read but not
+  changed, and their setting names are unconfirmed. If `asuswrt firewall` shows
+  `? (None)`, the name is wrong for your firmware.
+- **Parental control is one switch.** On or off works; per-device rules still
+  need the web UI.
 - **WiFi control is partial.** WPS, WPA mode, frame protection and country code
   can be changed. SSID, password, channel and bandwidth cannot.
 - **The country code may be locked.** Stock firmware often derives it from the
@@ -330,10 +249,182 @@ the details in [`settings.md`](skills/asuswrt/reference/settings.md) were
 confirmed on an RT-AX59U only. Two data types (`system`, `temperature`) return
 nothing on this model and are not used.
 
-## Adding missing api
+---
 
-To add a setting the tool does not cover yet, find its variable name by
-diffing the router's settings around a change:
+# Details
+
+Nothing below is needed to install or use the tool. It is here for edge cases,
+and for the agent reading this file.
+
+## Where the password is read from
+
+First match wins:
+
+1. `$ASUSWRT_ENV_FILE`, if you set it
+2. `.env` in the current directory
+3. `~/.config/asuswrt/.env`
+
+The CLI and the MCP server look in the same places. If a command reports the
+password is missing, it prints every path it searched.
+
+## What `uv tool install` puts where
+
+`asuswrt`, `asuswrt-mcp` and `asuswrt-probe` land in `~/.local/bin`. Run
+`uv tool update-shell` once if that directory is not on your `PATH`. GUI apps
+never inherit your shell `PATH`, which is why the Claude Desktop config uses an
+absolute path.
+
+To install from a local clone instead of GitHub:
+
+```bash
+git clone https://github.com/gittycat/asuswrt-tools
+uv tool install "./asuswrt-tools[mcp]" --force
+```
+
+Update the Claude Code plugin later with
+`claude plugin marketplace update asuswrt`.
+
+## When the skill loads
+
+The skill enters context on **asus router**, or on a request about your "local
+network" or "wifi". The word *router* alone does not load it — in a codebase
+that almost always means Express, React Router or message routing, and the skill
+would load for unrelated work. Once loaded, the hint is no longer needed: the
+agent will use it for *who's on my WiFi?* or *what devices are on my home
+network?* on its own.
+
+In Codex, `/skills` lists it and `$asuswrt` invokes it explicitly; in the
+ChatGPT desktop app it appears under **Skills** in the sidebar.
+
+## The MCP server
+
+It speaks MCP over **stdio**, so the host starts `asuswrt-mcp` as a child
+process. There is no URL, no port and no network listener.
+
+### What the agent is allowed to do
+
+The server starts read-only. Writes are opt-in, through environment variables
+set where you registered the server — or, in Claude Desktop, the two switches in
+the extension's settings, which set the same variables:
+
+| What you set | Tools the agent sees |
+| --- | --- |
+| *(nothing)* | the 12 read tools |
+| `ASUSWRT_MCP_ALLOW_WRITES=1` | + 8 tools that change settings |
+| both that and `ASUSWRT_MCP_ALLOW_DANGEROUS=1` | + `reboot_router`, `upgrade_firmware` |
+
+`ASUSWRT_MCP_ALLOW_DANGEROUS` on its own does nothing; it needs the writes
+variable too. Both open on `1`, `true`, `yes` or `on`, and on nothing else.
+Tools you have not enabled are never advertised — the agent cannot see them,
+cannot call them, and they cost no context. The variables are read once at
+startup, so after changing one, restart the host.
+
+### The tools
+
+```
+reads (always)       get_overview  get_system  get_health  get_wan
+                     list_clients  get_firewall_and_filters
+                     get_parental_control  list_port_forwards
+                     list_guest_networks  get_wireless
+                     check_firmware_update  get_nvram
+
+writes (opt-in)      add_port_forward  remove_port_forward
+                     set_port_forwarding_enabled  set_parental_control_enabled
+                     set_guest_network_enabled  set_wps_enabled
+                     set_wifi_security  set_wifi_country
+
+dangerous (both)     reboot_router  upgrade_firmware
+```
+
+`get_overview` is the cheap starting point — a summary (client *counts*, no
+firmware check, no raw nvram) for one login. `check_firmware_update` makes the
+router contact ASUS and takes about 5 seconds.
+
+### Every write is two calls
+
+Write tools take `confirm: bool = False`. Without it they change nothing:
+
+```jsonc
+// confirm omitted → preview only
+{"status": "preview", "applied": false,
+ "change": "…one sentence…", "warnings": ["…"], "current": {…}}
+
+// confirm: true → applied, with before/after for nvram writes
+{"status": "applied", "applied": true, …}
+```
+
+This mirrors the CLI's dry-run-then-`--yes` rule, and it lives in the server
+because it cannot be delegated to the host: the MCP spec treats tool annotations
+as *hints*, and some hosts auto-approve. `upgrade_firmware` additionally
+requires `to`, the exact version string from `check_firmware_update`, so nothing
+ever flashes whatever happened to turn up.
+
+### The Claude Desktop extension
+
+`extension/asuswrt.mcpb` is an [MCP Bundle](https://github.com/anthropics/mcpb)
+— a zip holding a `manifest.json`, an icon and a launcher script. Claude Desktop
+reads the manifest, shows the install dialog, and stores the two switches as
+`ASUSWRT_MCP_ALLOW_WRITES` and `ASUSWRT_MCP_ALLOW_DANGEROUS` — the same
+variables the terminal hosts pass.
+
+**It does not contain the server.** `asuswrt-mcp` needs Python 3.13, Claude
+Desktop ships no Python runtime, and the Python that a GUI app finds on macOS is
+the system 3.9. So the bundle carries a launcher that runs the copy `uv tool
+install` already placed in `~/.local/bin` — a self-contained script whose
+shebang points into its own virtualenv, which is why it works with no `PATH` at
+all. If the launcher cannot find it, the reason lands in
+`~/Library/Logs/Claude/mcp-server-asuswrt.log`.
+
+Rebuild it after editing the manifest — the build refuses to run if its version
+has drifted from `pyproject.toml`:
+
+```bash
+python3 extension/build.py
+# or: npx @anthropic-ai/mcpb pack extension extension/asuswrt.mcpb
+```
+
+### Claude Desktop, by hand
+
+**Settings → Developer → Edit Config** opens
+`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS,
+`%APPDATA%\Claude\claude_desktop_config.json` on Windows, if you would rather
+skip the extension and write the entry yourself:
+
+```json
+{
+  "mcpServers": {
+    "asuswrt": {
+      "command": "/Users/you/.local/bin/asuswrt-mcp",
+      "env": {
+        "ASUSWRT_MCP_ALLOW_WRITES": "1"
+      }
+    }
+  }
+}
+```
+
+Drop the `env` block for a read-only server. The path must be absolute.
+
+Codex's app and IDE extension have a form for this: **Settings → MCP servers →
+Add server** (the gear menu in the IDE extension). Choose **STDIO**, name it
+`asuswrt`, and give the absolute path to `asuswrt-mcp`. Or edit
+`~/.codex/config.toml`:
+
+```toml
+[mcp_servers.asuswrt]
+command = "asuswrt-mcp"
+env = { ASUSWRT_MCP_ALLOW_WRITES = "1" }
+```
+
+## Other agents
+
+Any host implementing the [Agent Skills](https://agentskills.io) or MCP specs
+works unchanged: the skill is the `skills/asuswrt` folder, the server is
+`asuswrt-mcp`.
+
+## Adding a setting the tool does not cover
+
+Find the variable name by diffing the router's settings around a single change:
 
 ```bash
 ssh admin@192.168.50.1 'nvram show 2>/dev/null | sort' > before.txt
@@ -345,15 +436,17 @@ diff before.txt after.txt
 The diff names the variable and shows how it is encoded. Add it to
 `FIREWALL_VARS` in `src/asuswrt/ops.py` to read it — the CLI and the MCP server
 both pick it up from there — and record it in the settings reference. SSH is
-enabled in the web UI under *Administration → System → Service → Enable SSH*;
-it is not exposed in the mobile app.
+enabled in the web UI under *Administration → System → Service → Enable SSH*; it
+is not exposed in the mobile app.
+
+---
 
 ## Credits
 
 - **[asusrouter](https://github.com/Vaskivskyi/asusrouter)** by
-  [Vaskivskyi](https://github.com/Vaskivskyi) (Apache-2.0) — the HTTP API
-  client for AsusWRT that does all the protocol work here. Also used by the
-  core Home Assistant AsusWRT integration.
+  [Vaskivskyi](https://github.com/Vaskivskyi) (Apache-2.0) — the HTTP API client
+  for AsusWRT that does all the protocol work here. Also used by the core Home
+  Assistant AsusWRT integration.
 - **[mcp](https://github.com/modelcontextprotocol/python-sdk)** — the official
   Python SDK for the Model Context Protocol, which runs the stdio server.
 - **[python-dotenv](https://github.com/theskumar/python-dotenv)** — loads the
