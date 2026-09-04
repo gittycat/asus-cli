@@ -242,6 +242,31 @@ around it, rather than in instructions it is asked to follow.
   happens; the web UI is the fallback.
 - **A firmware update can break this.** None of this is a supported API.
 
+## Two settings this project will not turn on
+
+Both come up in every security review of an ASUS router, so the tools treat them
+as settled rather than raise them with you each time. If you disagree, each is
+one checkbox away in the web UI — this project simply will not propose them.
+
+- **AiProtection**, and with it Traffic Analyzer, Apps Analyzer, Adaptive QoS,
+  Game Boost and Web History. All of them are gated behind a single bundled
+  Trend Micro EULA: accepting it for any one feature starts the Trend Micro DPI
+  engine and sends browsing data off the router. It costs no money — the price
+  is the data. So `TM_EULA=0` and `bwdpi_db_enable=0` are the expected reading
+  here, not a misconfiguration. The sub-flags `wrs_mals_enable`, `wrs_cc_enable`
+  and `wrs_vp_enable` can show `1` while the engine is off; that means
+  configured but not running, which is the desired end state.
+- **DoS protection** (`fw_dos_x`). It adds firewall rules limiting new
+  connections and ICMP to roughly one packet per second. The community
+  consensus on SNBForums is that this stops nothing real — against an actual
+  flood the uplink saturates long before the router matters — while it does
+  break legitimate traffic, with users reporting they had to disable it for
+  Cloudflare and for media servers. `0` is both the AsusWRT default and the
+  right value for a home router.
+
+Sources for both are in
+[`settings.md`](skills/asuswrt/reference/settings.md#features-with-a-settled-answer).
+
 Tested on an ASUS RT-AX59U running stock firmware `3.0.0.4` (not Merlin), with
 the `asusrouter` library 1.21. Other AsusWRT routers should work — the library
 lists 27 confirmed models from WiFi 4 through WiFi 7, on stock and Merlin — but
@@ -251,7 +276,7 @@ nothing on this model and are not used.
 
 ---
 
-# Details
+# Details - Not for humans
 
 Nothing below is needed to install or use the tool. It is here for edge cases,
 and for the agent reading this file.
@@ -296,11 +321,18 @@ network?* on its own.
 In Codex, `/skills` lists it and `$asuswrt` invokes it explicitly; in the
 ChatGPT desktop app it appears under **Skills** in the sidebar.
 
-The skill deliberately carries only what a tool schema cannot: the settled
-policy decisions (the Trend Micro EULA, DoS protection, when a reboot or a flash
-is allowed), the CLI, and the pointers into `reference/`. Per-tool safety notes
-live in the MCP tool descriptions, and the preview-then-confirm contract is
-enforced in the server itself — so neither one restates the other.
+The skill deliberately carries only what a tool schema cannot: the CLI, when a
+reboot or a flash is allowed, and the pointers into `reference/`. Per-tool
+safety notes live in the MCP tool descriptions, and the preview-then-confirm
+contract is enforced in the server itself — so neither one restates the other.
+
+The one deliberate duplication is [the two settings above](#two-settings-this-project-will-not-turn-on),
+which are repeated in the `get_overview`, `get_firewall_and_filters` and
+`get_nvram` descriptions. The skill is not always there: the Claude Desktop
+extension ships the MCP server with no skill mechanism at all, and registering
+the server by hand installs no skill either. An agent that reads `fw_dos_x=0`
+with no other context reports it as a gap to close. A test pins the wording in
+all three descriptions.
 
 ## The MCP server
 

@@ -188,6 +188,24 @@ def test_every_read_tool_is_read_only_annotated():
         assert tool.annotations.read_only_hint is True
 
 
+@pytest.mark.parametrize(
+    "name",
+    ["get_overview", "get_firewall_and_filters", "get_nvram"],
+)
+def test_settled_policy_survives_in_the_tool_descriptions(name):
+    """The skill is not always installed - the Claude Desktop extension ships
+    the server with no skill mechanism at all, and `claude mcp add` installs
+    none either. An agent that reads fw_dos_x=0 or TM_EULA=0 with no other
+    context reports them as gaps to close, so the schema has to carry the
+    policy itself. See the README, "Two settings this project will not turn
+    on"."""
+    tools = {t.name: t for t in asyncio.run(mcp_server.build_server().list_tools())}
+    description = " ".join(tools[name].description.split()).lower()
+    assert "fw_dos_x=0" in description
+    assert "trend micro" in description
+    assert "never propose enabling either" in description
+
+
 # -- reads: every one returns JSON and leaves the router untouched -----------
 
 

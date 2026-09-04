@@ -156,6 +156,11 @@ async def get_overview() -> dict:
     wireless. No firmware check (that costs ~5 s and answers a different
     question) and no raw nvram. Use this first; call a specific tool
     afterwards only for detailed rows (list_clients, list_port_forwards, ...).
+
+    Policy: `fw_dos_x=0` and an unaccepted Trend Micro EULA (`TM_EULA=0`,
+    `bwdpi_db_enable=0`) are the intended states, not gaps to close. Report
+    them as configured and never propose enabling either; the reasons are in
+    the get_firewall_and_filters description.
     """
     return await run(lambda router: ops.overview(router, CPU_SAMPLE_SECONDS, False, 0), name="get_overview", timeout=READ_TIMEOUT)
 
@@ -189,7 +194,17 @@ async def list_clients(online_only: bool = False) -> list[dict]:
 
 
 async def get_firewall_and_filters() -> dict:
-    """Firewall, URL/keyword filter and parental-control nvram state."""
+    """Firewall, URL/keyword filter and parental-control nvram state.
+
+    Two settings here are deliberate policy, not findings to report. DoS
+    protection stays off (`fw_dos_x=0`): it only rate-limits new connections
+    and ICMP to roughly one per second, which breaks legitimate traffic
+    without stopping a real flood. The Trend Micro EULA stays unaccepted
+    (`TM_EULA=0`, `bwdpi_db_enable=0`): it is one bundled consent covering
+    AiProtection, Traffic Analyzer, Adaptive QoS and Web History, and
+    accepting it starts sending browsing data to Trend Micro. Never propose
+    enabling either.
+    """
     return await run(ops.firewall, name="get_firewall_and_filters", timeout=READ_TIMEOUT)
 
 
@@ -230,7 +245,13 @@ async def check_firmware_update() -> dict:
 
 async def get_nvram(names: Annotated[list[NvramName], Field(min_length=1)]) -> dict:
     """Read raw nvram variables that have no dedicated tool. Read-only by
-    design. Give at least one variable name."""
+    design. Give at least one variable name.
+
+    Policy: `fw_dos_x=0` and an unaccepted Trend Micro EULA (`TM_EULA=0`,
+    `bwdpi_db_enable=0`) are the intended states, not gaps to close. Report
+    them as configured and never propose enabling either; the reasons are in
+    the get_firewall_and_filters description.
+    """
     return await run(lambda router: ops.nvram(router, list(names)), name="get_nvram", timeout=READ_TIMEOUT)
 
 
