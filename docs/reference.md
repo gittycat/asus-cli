@@ -32,6 +32,27 @@ uv tool install "./asuswrt-ai-tools[mcp]" --force
 Update the Claude Code plugin later with
 `claude plugin marketplace update asuswrt`.
 
+## Removing it again
+
+`scripts/uninstall.sh` undoes all of it: the three binaries and the uv tool
+directory, the MCP registration in Claude Code (all three scopes) and in Codex,
+the plugin and marketplace entry, the skill leftovers from before v0.8.0, and
+the Claude Desktop extension. It skips whatever is not there.
+
+```bash
+./scripts/uninstall.sh          # dry run, lists what it would remove
+./scripts/uninstall.sh --yes
+```
+
+Run from inside a clone it also runs `git clean -xd`, returning the working
+tree to the state `git clone` leaves it in — useful for testing an install from
+scratch. It refuses if tracked files have uncommitted changes.
+
+Two things it keeps unless asked: `~/.config/asuswrt` with your password
+(`--password`) and the clone's `.claude/` directory (`--repo-all`). ChatGPT
+connectors are stored server-side, so remove those under *Settings →
+Connectors* yourself.
+
 ## When the tools load
 
 The tool names are all prefixed `asuswrt`, so they only come up for a request
