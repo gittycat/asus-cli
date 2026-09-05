@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Remove every trace of this project from a Mac: the CLI, the MCP
-# registrations in Claude Code and Codex, the Claude Code plugin and its saved
-# settings, the skill leftovers from before v0.8.0, and the Claude Desktop
-# extension along with its virtualenv and install record. Safe to run when only
-# some of them are present.
+# Remove every installed component of this project from a Mac: the CLI, the
+# MCP registrations in Claude Code and Codex, the Claude Code plugin and its
+# saved settings, the skill leftovers from before v0.8.0, and the Claude
+# Desktop extension along with its virtualenv and install record. Safe to run
+# when only some of them are present. Tool-owned workspace history is left
+# alone.
 #
 # Not touched: ~/.cache/uv. Since v0.9.0 the plugin and the extension resolve
 # their dependencies through uv, which caches wheels there — shared with every
@@ -82,24 +83,52 @@ say ""
 say "Claude Code"
 # `claude mcp remove` only clears one scope at a time, so try all three: the
 # server can be registered in ~/.claude.json (user), per project, or locally.
-CC_REGISTERED=0
-grep -q '"asuswrt"' "$HOME/.claude.json" 2>/dev/null && CC_REGISTERED=1
-[ -f .mcp.json ] && grep -q '"asuswrt"' .mcp.json 2>/dev/null && CC_REGISTERED=1
-if [ "$CC_REGISTERED" -eq 1 ]; then
+# Match only an actual mcpServers key. Claude also records unrelated history
+# such as skillUsage.asuswrt in ~/.claude.json, which must not count as a
+# configured server.
+claude_mcp_registered() {
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$HOME/.claude.json" .mcp.json <<'PY' 2>/dev/null
+import json
+import sys
+
+for path in sys.argv[1:]:
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (FileNotFoundError, OSError, ValueError):
+        continue
+
+    if "asuswrt" in (data.get("mcpServers") or {}):
+        sys.exit(0)
+    for project in (data.get("projects") or {}).values():
+        if isinstance(project, dict) and "asuswrt" in (project.get("mcpServers") or {}):
+            sys.exit(0)
+
+sys.exit(1)
+PY
+    return
+  fi
+
+  # Claude Code can still perform an exact lookup if Python is unavailable.
+  command -v claude >/dev/null 2>&1 && claude mcp get asuswrt >/dev/null 2>&1
+}
+
+if claude_mcp_registered; then
   if command -v claude >/dev/null 2>&1; then
     hit "claude mcp remove asuswrt  (local, project and user scopes)"
     if [ "$APPLY" -eq 1 ]; then
       for scope in local project user; do
         claude mcp remove asuswrt --scope "$scope" >/dev/null 2>&1
       done
-      if grep -q '"asuswrt"' "$HOME/.claude.json" 2>/dev/null; then
-        say "      ! still present in ~/.claude.json — remove the asuswrt entry by hand"
+      if claude_mcp_registered; then
+        say "      ! asuswrt MCP server is still registered — remove the mcpServers entry by hand"
       else
         ran
       fi
     fi
   else
-    hit "asuswrt in ~/.claude.json — claude is not on PATH, remove the entry by hand"
+    hit "asuswrt MCP server is registered — claude is not on PATH, remove the mcpServers entry by hand"
   fi
 fi
 if command -v claude >/dev/null 2>&1; then
@@ -289,7 +318,11 @@ if [ "$FOUND" -eq 0 ]; then
 elif [ "$APPLY" -eq 1 ]; then
   say "Removed $DONE of $FOUND items."
   say "Verify: command -v asuswrt        (should print nothing)"
-  say "        git status --ignored -s   (should print nothing)"
+  if [ "$DROP_CLAUDE_DIR" -eq 1 ]; then
+    say "        git status --ignored -s   (should print nothing)"
+  else
+    say "        git status --ignored -s   (only the retained .claude/ may appear)"
+  fi
 else
   say "$FOUND items would be removed. Re-run with --yes."
 fi

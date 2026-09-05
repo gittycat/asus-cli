@@ -39,7 +39,7 @@ Update the Claude Code plugin later with
 
 ## Removing it again
 
-`scripts/uninstall.sh` undoes all of it: the three binaries and the uv tool
+`scripts/uninstall.sh` removes every installed component: the three binaries and the uv tool
 directory, the MCP registration in Claude Code (all three scopes) and in Codex,
 the plugin, its marketplace entry and its saved `pluginConfigs` switches, the
 skill leftovers from before v0.8.0, and the Claude Desktop extension — its
@@ -47,10 +47,12 @@ unpacked directory, the virtualenv uv built inside it, its enabled/disabled
 file, and its row in `extensions-installations.json`, which is the one that
 makes Desktop stop listing it. It skips whatever is not there.
 
-Two things it deliberately leaves alone. `~/.cache/uv` is shared with every
-other uv project on the machine. And ChatGPT needs no cleanup at all: it
-accepts only remote MCP servers over HTTPS and cannot start a stdio child
-process, so this server was never registered there in the first place.
+It deliberately leaves tool-owned workspace history and per-project state
+alone, including Claude Code transcripts and Codex companion state. It also
+leaves `~/.cache/uv`, which is shared with every other uv project on the
+machine. ChatGPT needs no cleanup at all: it accepts only remote MCP servers
+over HTTPS and cannot start a stdio child process, so this server was never
+registered there in the first place.
 
 ```bash
 ./scripts/uninstall.sh          # dry run, lists what it would remove
