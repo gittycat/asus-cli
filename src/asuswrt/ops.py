@@ -92,7 +92,7 @@ DNS_VARS = [
 # pointing at the old servers, so nvram reads back correctly while every lookup
 # still goes to the previous resolver. `restart_dnsmasq` does not help either —
 # dnsmasq reads wan<N>_dns, which only the WAN script rewrites. Verified on
-# hardware; see reference/settings.md.
+# hardware; see docs/settings.md.
 DNS_SERVICE = "restart_wan_dns {unit}"
 
 # LED brightness/state. `led_val` is the live variable; `led_disable` is empty
@@ -525,7 +525,7 @@ async def set_dns(
     A resolver that strips EDNS Client Subnet (1.1.1.1 does, by design) hides
     the client's network from authoritative servers, so CDNs that map by
     resolver location send traffic to a distant node. See
-    reference/settings.md.
+    docs/settings.md.
     """
     if automatic and (server1 or server2):
         raise ValueError(

@@ -276,12 +276,12 @@ one checkbox away in the web UI — this project simply will not propose them.
   right value for a home router.
 
 Sources for both are in
-[`settings.md`](skills/asuswrt/reference/settings.md#features-with-a-settled-answer).
+[`settings.md`](docs/settings.md#features-with-a-settled-answer).
 
 Tested on an ASUS RT-AX59U running stock firmware `3.0.0.4` (not Merlin), with
 the `asusrouter` library 1.21. Other AsusWRT routers should work — the library
 lists 27 confirmed models from WiFi 4 through WiFi 7, on stock and Merlin — but
-the details in [`settings.md`](skills/asuswrt/reference/settings.md) were
+the details in [`settings.md`](docs/settings.md) were
 confirmed on an RT-AX59U only. Two data types (`system`, `temperature`) return
 nothing on this model and are not used.
 

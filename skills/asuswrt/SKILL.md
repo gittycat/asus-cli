@@ -186,13 +186,13 @@ regardless — while it does break legitimate traffic, with users reporting they
 had to disable it for Cloudflare and for media servers. Off is the AsusWRT
 default and the right setting for a home router. Someone genuinely under attack
 needs their ISP, not this checkbox. Sources are in
-[reference/settings.md](reference/settings.md#features-with-a-settled-answer).
+[reference/settings.md](../../docs/settings.md#features-with-a-settled-answer).
 
 ## When something is not covered
 
 The tools cover the common cases, not all of AsusWRT. For anything else, read
 the value with `nvram get <var>` to confirm its name and encoding, then look it
-up in [reference/settings.md](reference/settings.md) — variables, encodings, and
+up in [reference/settings.md](../../docs/settings.md) — variables, encodings, and
 which are verified against real hardware. If it needs a write that does not
 exist, say so rather than improvising. Worked examples for common requests are
 in [reference/recipes.md](reference/recipes.md).

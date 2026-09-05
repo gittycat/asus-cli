@@ -84,7 +84,7 @@ asuswrt firewall
 Shows the firewall switch, DoS protection, logging, WAN web access, both
 content filters and parental control in one view. A value shown as `? (None)`
 means that variable does not exist under this firmware — see
-[settings.md](settings.md).
+[settings.md](../docs/settings.md).
 
 ## "Block the kids' tablet"
 
@@ -217,6 +217,6 @@ Read the current value first:
 asuswrt --json nvram get <variable>
 ```
 
-Then check [settings.md](settings.md) for the encoding. If the change requires
+Then check [settings.md](../docs/settings.md) for the encoding. If the change requires
 a write the CLI does not implement, tell the user which screen in the web UI
 does it. Do not attempt raw writes.

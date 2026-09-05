@@ -64,7 +64,7 @@ status into `DDNSStatusCode`. Writing it needs one thing known first.
 parser, and no `set_state` function. `AsusStateMap[AsusState.DDNS]` is `None`
 (`modules/state.py`). So `async_set_state(AsusDDNS.ACTIVE)` does not raise and
 does not write: it falls through, logs at `debug`, and returns `False`. See the
-warning in `skills/asuswrt/reference/settings.md` — this is a general property
+warning in `docs/settings.md` — this is a general property
 of `async_set_state`, not a DDNS quirk.
 
 A DDNS write therefore has to go the same way `dns` and `led` went: `apply_nvram`
