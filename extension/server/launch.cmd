@@ -18,7 +18,7 @@ for %%C in (
 >&2 echo asuswrt-mcp was not found.
 >&2 echo.
 >&2 echo Install it, then reopen Claude Desktop:
->&2 echo   uv tool install "asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-tools"
+>&2 echo   uv tool install "asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-ai-tools"
 >&2 echo.
 >&2 echo If it is installed somewhere else, put the full path in the extension's
 >&2 echo "Path to asuswrt-mcp" setting (Settings - Extensions - ASUS Router Control).

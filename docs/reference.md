@@ -25,8 +25,8 @@ absolute path.
 To install from a local clone instead of GitHub:
 
 ```bash
-git clone https://github.com/gittycat/asuswrt-tools
-uv tool install "./asuswrt-tools[mcp]" --force
+git clone https://github.com/gittycat/asuswrt-ai-tools
+uv tool install "./asuswrt-ai-tools[mcp]" --force
 ```
 
 Update the Claude Code plugin later with

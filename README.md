@@ -39,15 +39,15 @@ family-member account cannot log in.
 **Claude Code** — the plugin registers the server for you, read-only:
 
 ```bash
-uv tool install "asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-tools"
-claude plugin marketplace add gittycat/asuswrt-tools
+uv tool install "asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-ai-tools"
+claude plugin marketplace add gittycat/asuswrt-ai-tools
 claude plugin install asuswrt@asuswrt
 ```
 
 Or register it yourself, which is also how you allow writes:
 
 ```bash
-uv tool install "asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-tools"
+uv tool install "asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-ai-tools"
 claude mcp add --scope user asuswrt -- asuswrt-mcp
 ```
 
@@ -61,7 +61,7 @@ claude mcp add --env ASUSWRT_MCP_ALLOW_WRITES=1 --scope user asuswrt -- asuswrt-
 **Codex**
 
 ```bash
-uv tool install "asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-tools"
+uv tool install "asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-ai-tools"
 codex mcp add asuswrt -- asuswrt-mcp
 
 # or, allowing writes:
@@ -72,8 +72,8 @@ codex mcp add asuswrt --env ASUSWRT_MCP_ALLOW_WRITES=1 -- asuswrt-mcp
 server, then the one-click extension:
 
 ```bash
-uv tool install "asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-tools"
-curl -LO https://raw.githubusercontent.com/gittycat/asuswrt-tools/main/extension/asuswrt.mcpb
+uv tool install "asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-ai-tools"
+curl -LO https://raw.githubusercontent.com/gittycat/asuswrt-ai-tools/main/extension/asuswrt.mcpb
 open asuswrt.mcpb     # macOS. On Windows: start asuswrt.mcpb
 ```
 

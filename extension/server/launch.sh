@@ -29,7 +29,7 @@ asuswrt-mcp was not found.
 
 Install it, then reopen Claude Desktop:
 
-  uv tool install "asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-tools"
+  uv tool install "asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-ai-tools"
 
 If it is installed somewhere else, put the full path in the extension's
 "Path to asuswrt-mcp" setting (Settings -> Extensions -> ASUS Router Control).
