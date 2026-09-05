@@ -196,6 +196,9 @@ async def list_clients(online_only: bool = False) -> list[dict]:
 async def get_firewall_and_filters() -> dict:
     """Firewall, URL/keyword filter and parental-control nvram state.
 
+    A null value means the variable does not exist under this firmware, which
+    is not the same as the feature being off. Report it as undetermined.
+
     Two settings here are deliberate policy, not findings to report. DoS
     protection stays off (`fw_dos_x=0`): it only rate-limits new connections
     and ICMP to roughly one per second, which breaks legitimate traffic
@@ -261,7 +264,9 @@ async def list_port_forwards() -> dict:
 
 
 async def list_guest_networks() -> dict:
-    """Guest wireless network state per band (SSID, enabled)."""
+    """Guest wireless network state per band (SSID, enabled). Networks are
+    numbered 1-3 per band; read this first to pick the right index for
+    set_guest_network_enabled."""
     return await run(ops.guest, name="list_guest_networks", timeout=READ_TIMEOUT)
 
 
@@ -372,6 +377,10 @@ async def add_port_forward(
     rule does nothing while port forwarding is globally OFF — check
     `global_state` in the result, or list_port_forwards.
 
+    `to_port` forwards to a different internal port than the external one.
+    `from_ip` restricts the rule to a single source address, which is the way
+    to expose a risky service (SSH, RDP) without opening it to everyone.
+
     confirm=False (default) previews the rule and writes nothing. confirm=True
     applies it. A clash with an existing rule on the same external port and
     protocol is refused unless force=True.
@@ -475,6 +484,11 @@ async def set_port_forwarding_enabled(enabled: bool, confirm: bool = False) -> d
 
 async def set_parental_control_enabled(enabled: bool, confirm: bool = False) -> dict:
     """Turn parental control on or off.
+
+    This is the feature switch only. Per-device rules are not settable here —
+    adding one needs the router's web UI or the mobile app. Say so rather
+    than improvising an nvram write. get_parental_control shows the rules
+    that already exist.
 
     confirm=False previews the current state and writes nothing. confirm=True
     applies it.

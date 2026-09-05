@@ -32,31 +32,19 @@ uv tool install "./asuswrt-tools[mcp]" --force
 Update the Claude Code plugin later with
 `claude plugin marketplace update asuswrt`.
 
-## When the skill loads
+## When the tools load
 
-The skill enters context on **asus router**, or on a request about your "local
-network" or "wifi". The word *router* alone does not load it — in a codebase
-that almost always means Express, React Router or message routing, and the skill
-would load for unrelated work. Once loaded, the hint is no longer needed: the
-agent will use it for *who's on my WiFi?* or *what devices are on my home
-network?* on its own.
+The tool names are all prefixed `asuswrt`, so they only come up for a request
+about your router. Say **asus** once in the first request; after that the agent
+uses them for *who's on my WiFi?* or *what devices are on my home network?* on
+its own.
 
-In Codex, `/skills` lists it and `$asuswrt` invokes it explicitly; in the
-ChatGPT desktop app it appears under **Skills** in the sidebar.
-
-The skill deliberately carries only what a tool schema cannot: the CLI, when a
-reboot or a flash is allowed, and the pointers into `reference/`. Per-tool
-safety notes live in the MCP tool descriptions, and the preview-then-confirm
-contract is enforced in the server itself — so neither one restates the other.
-
-The one deliberate duplication is the
-[two settings this project will not turn on](../README.md#two-settings-this-project-will-not-turn-on),
-which are repeated in the `get_overview`, `get_firewall_and_filters` and
-`get_nvram` descriptions. The skill is not always there: the Claude Desktop
-extension ships the MCP server with no skill mechanism at all, and registering
-the server by hand installs no skill either. An agent that reads `fw_dos_x=0`
-with no other context reports it as a gap to close. A test pins the wording in
-all three descriptions.
+The two settings this project will not turn on
+([Trend Micro and DoS](../README.md#two-settings-this-project-will-not-turn-on))
+are repeated in the `get_overview`, `get_firewall_and_filters` and `get_nvram`
+descriptions, because an agent that reads `fw_dos_x=0` with no other context
+reports it as a gap to close. A test pins the wording in all three. The
+reasoning and sources are in [settings.md](settings.md).
 
 ## The MCP server
 
@@ -181,9 +169,8 @@ env = { ASUSWRT_MCP_ALLOW_WRITES = "1" }
 
 ## Other agents
 
-Any host implementing the [Agent Skills](https://agentskills.io) or MCP specs
-works unchanged: the skill is the `skills/asuswrt` folder, the server is
-`asuswrt-mcp`.
+Any host implementing the MCP spec works unchanged: the server is
+`asuswrt-mcp`, over stdio.
 
 ## Adding a setting the tool does not cover
 

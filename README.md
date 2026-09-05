@@ -1,10 +1,11 @@
-# ASUS Router MCP and SKILL for AI Agents
+# ASUS Router MCP for AI Agents
 
 Allows you to control a local Asus WRT home router via AI prompts instead of using the Asus web admin interface or ios app.
 
-Use the SKILL for CLI coding agents like Claude Code, Codex. Use the MCP for AI chat agents like ChatGPT, Gemini app. You can install both too.
+Works with any agent that speaks MCP — Claude Code, Codex, Claude Desktop,
+ChatGPT and Gemini among them.
 
-They both use the included small python program, `asuswrt` that speaks the router's
+It uses the included small python program, `asuswrt` that speaks the router's
 unpublished HTTP API — the same one the official ASUS mobile app uses. No SSH,
 no scraping the web UI.
 
@@ -16,8 +17,8 @@ no scraping the web UI.
 You need [uv](https://docs.astral.sh/uv/), your router's **admin** password, and
 a machine on the same network as the router.
 
-Save the password first — everything needs it. After that the **skill** and the
-**MCP server** are independent: install one, the other, or both, in any order.
+Save the password first — everything needs it. Then register the MCP server
+with whichever agent you use.
 
 ### Save your router password — required
 
@@ -33,9 +34,9 @@ That is the whole configuration — the router's address is your machine's defau
 gateway, detected on every run. Use the router's **admin** account; a limited
 family-member account cannot log in.
 
-### Install the skill
+### Install the MCP server
 
-**Claude Code**
+**Claude Code** — the plugin registers the server for you, read-only:
 
 ```bash
 uv tool install "asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-tools"
@@ -43,26 +44,7 @@ claude plugin marketplace add gittycat/asuswrt-tools
 claude plugin install asuswrt@asuswrt
 ```
 
-The plugin carries the skill **and** registers the MCP server, read-only, so on
-Claude Code this is the whole installation. Register the server yourself, below,
-only if you want the agent to be able to change router settings.
-
-**Codex** — skills are plain folders, so copy this one in:
-
-```bash
-uv tool install "asuswrt @ git+https://github.com/gittycat/asuswrt-tools"
-
-git clone --depth 1 https://github.com/gittycat/asuswrt-tools /tmp/asuswrt-tools
-mkdir -p ~/.agents/skills
-cp -r /tmp/asuswrt-tools/skills/asuswrt ~/.agents/skills/
-rm -rf /tmp/asuswrt-tools
-```
-
-Restart Codex. `/skills` should now list `asuswrt`.
-
-### Install the MCP server
-
-**Claude Code**
+Or register it yourself, which is also how you allow writes:
 
 ```bash
 uv tool install "asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-tools"
@@ -119,8 +101,8 @@ If that prints your router, the agent side works too.
 
 ## Try it
 
-Say **asus** in your first request so the skill or the tools load. After that
-the agent keeps using them on its own.
+Say **asus** in your first request so the tools load. After that the agent
+keeps using them on its own.
 
 Ask:
 
@@ -208,7 +190,7 @@ around it, rather than in instructions it is asked to follow.
   hunting through help output, and never has to parse a table.
 - **The likely mistakes are blocked in code.** A duplicate port needs
   `--force`; `upgrade_firmware` needs the exact version string that the check
-  returned; the skill forbids rebooting unless you used the word; MCP write
+  returned; the tools refuse to reboot unless you used the word; MCP write
   tools are hidden rather than refused, so an agent cannot retry one into
   working.
 - **Errors carry their own diagnosis.** `No route to host`, for example, has
@@ -289,7 +271,7 @@ nothing on this model and are not used.
 
 ## Details
 
-Install paths, where the password is read from, when the skill loads, the MCP
+Install paths, where the password is read from, the MCP
 tool list and its two-call writes, the Claude Desktop extension, and how to add
 a setting the tool does not cover are in
 [`docs/reference.md`](docs/reference.md). Problems are in
