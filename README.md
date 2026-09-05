@@ -2,8 +2,10 @@
 
 Allows you to control a local Asus WRT home router via AI prompts instead of using the Asus web admin interface or ios app.
 
-Works with any agent that speaks MCP — Claude Code, Codex, Claude Desktop,
-ChatGPT and Gemini among them.
+Works with any agent that can start a local MCP server over stdio — Claude
+Code, Codex, Claude Desktop and Gemini CLI among them. Not ChatGPT: it accepts
+only remote servers reachable over HTTPS, and this one deliberately has no
+network listener.
 
 It uses the included small python program, `asuswrt` that speaks the router's
 unpublished HTTP API — the same one the official ASUS mobile app uses. No SSH,

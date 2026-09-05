@@ -62,9 +62,7 @@ tree to the state `git clone` leaves it in — useful for testing an install fro
 scratch. It refuses if tracked files have uncommitted changes.
 
 Two things it keeps unless asked: `~/.config/asuswrt` with your password
-(`--password`) and the clone's `.claude/` directory (`--repo-all`). ChatGPT
-connectors are stored server-side, so remove those under *Settings →
-Connectors* yourself.
+(`--password`) and the clone's `.claude/` directory (`--repo-all`).
 
 ## When the tools load
 
