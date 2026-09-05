@@ -46,3 +46,35 @@ Shipping writes on by default would need all of:
 
 Until then the default stays read-only, which is the setting that cannot go
 wrong unattended.
+
+## DDNS
+
+Dynamic DNS keeps a fixed hostname — `something.asuscomm.com` — pointed at a
+home connection whose ISP-assigned IP keeps changing. The router re-registers
+its current address with the DDNS provider whenever it moves, so anything
+published from home stays reachable without paying for a static IP. It is off
+here (`ddns_enable_x=0`).
+
+Left out of the round that added `dns` and `led`. Reading it would work today:
+`AsusData.DDNS` is wired up normally and the library parses the provider's
+status into `DDNSStatusCode`. Writing it needs one thing known first.
+
+**The library has no DDNS setter.** `asusrouter/modules/ddns.py` defines
+`AsusDDNS`, `DDNSStatusCode` and `DDNSStatusHint` — three enums and a status
+parser, and no `set_state` function. `AsusStateMap[AsusState.DDNS]` is `None`
+(`modules/state.py`). So `async_set_state(AsusDDNS.ACTIVE)` does not raise and
+does not write: it falls through, logs at `debug`, and returns `False`. See the
+warning in `skills/asuswrt/reference/settings.md` — this is a general property
+of `async_set_state`, not a DDNS quirk.
+
+A DDNS write therefore has to go the same way `dns` and `led` went: `apply_nvram`
+with `ddns_enable_x`, `ddns_server_x` and `ddns_hostname_x`, restarting
+`restart_ddns_le` (`AsusSystem.DDNS_RESTART`). What would have to be true to add
+it:
+
+- **Somewhere to verify it.** Every write in this tool was confirmed against a
+  live RT-AX59U. DDNS is off on the only router available, so enabling it *is*
+  the test, and that means registering a real hostname with a real provider.
+- **A decision about credentials.** Custom DDNS providers take a username and
+  password, which would be a second secret for this tool to hold. ASUS's own
+  `asuscomm.com` does not, and is the only case worth supporting first.

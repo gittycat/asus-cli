@@ -26,6 +26,12 @@ MUTATIONS = [
     ("wifi", "security", "--mode", "wpa2wpa3"),
     ("wifi", "security", "--band", "5ghz", "--mode", "wpa3", "--mfp", "capable"),
     ("wifi", "country", "--band", "5ghz", "--code", "AU"),
+    ("dns", "set", "--server1", "8.8.8.8", "--server2", "8.8.4.4"),
+    ("dns", "auto"),
+    ("led", "on"),
+    ("led", "off"),
+    ("upnp", "enable"),
+    ("upnp", "disable"),
     ("firmware", "upgrade", "--wait", "0"),
     ("reboot",),
 ]

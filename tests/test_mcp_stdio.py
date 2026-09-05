@@ -92,12 +92,15 @@ def test_initialize_and_tools_list_are_clean_jsonrpc_and_match_the_default_gate(
 
     names = {tool["name"] for tool in tools_response["result"]["tools"]}
 
-    # No gates set: only the 12 read tools are registered.
+    # No gates set: only the 15 read tools are registered.
     assert names == {
         "get_overview",
         "get_system",
         "get_health",
         "get_wan",
+        "get_dns",
+        "get_led",
+        "get_upnp",
         "list_clients",
         "get_firewall_and_filters",
         "get_parental_control",

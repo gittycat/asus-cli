@@ -71,8 +71,8 @@ the extension's settings, which set the same variables:
 
 | What you set | Tools the agent sees |
 | --- | --- |
-| *(nothing)* | the 12 read tools |
-| `ASUSWRT_MCP_ALLOW_WRITES=1` | + 8 tools that change settings |
+| *(nothing)* | the 15 read tools |
+| `ASUSWRT_MCP_ALLOW_WRITES=1` | + 11 tools that change settings |
 | both that and `ASUSWRT_MCP_ALLOW_DANGEROUS=1` | + `reboot_router`, `upgrade_firmware` |
 
 `ASUSWRT_MCP_ALLOW_DANGEROUS` on its own does nothing; it needs the writes
@@ -85,15 +85,16 @@ startup, so after changing one, restart the host.
 
 ```
 reads (always)       get_overview  get_system  get_health  get_wan
-                     list_clients  get_firewall_and_filters
-                     get_parental_control  list_port_forwards
-                     list_guest_networks  get_wireless
+                     get_dns  get_led  get_upnp  list_clients
+                     get_firewall_and_filters  get_parental_control
+                     list_port_forwards  list_guest_networks  get_wireless
                      check_firmware_update  get_nvram
 
 writes (opt-in)      add_port_forward  remove_port_forward
                      set_port_forwarding_enabled  set_parental_control_enabled
                      set_guest_network_enabled  set_wps_enabled
                      set_wifi_security  set_wifi_country
+                     set_wan_dns  set_led_enabled  set_upnp_enabled
 
 dangerous (both)     reboot_router  upgrade_firmware
 ```

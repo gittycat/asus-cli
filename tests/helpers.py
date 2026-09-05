@@ -57,6 +57,29 @@ DEFAULT_NVRAM: dict[str, str] = {
     "wl1_crypto": "aes",
     "wl1_mfp": "0",
     "wl1_country_code": "AA",
+    # DNS, as the router was actually configured when this was added: manual
+    # servers on WAN unit 0, and nothing else switched on.
+    "wan0_dnsenable_x": "0",
+    "wan0_dns1_x": "1.1.1.1",
+    "wan0_dns2_x": "1.0.0.1",
+    "wan0_dns": "1.1.1.1 1.0.0.1",
+    "dhcp_dns1_x": "",
+    "dhcp_dns2_x": "",
+    "dhcpd_dns_router": "1",
+    "lan_dnsenable_x": "0",
+    "dnspriv_enable": "0",
+    "dnssec_enable": "0",
+    "dns_fwd_local": "0",
+    "dns_norebind": "0",
+    # led_disable is empty on RT-AX59U; led_val is the live one.
+    "led_val": "1",
+    # UPnP: three switches, all off, as observed.
+    "upnp_enable": "0",
+    "wan_upnp_enable": "0",
+    "wan0_upnp_enable": "0",
+    "upnp_secure": "1",
+    "upnp_mnp": "1",
+    "upnp_port": "0",
 }
 
 
@@ -169,6 +192,11 @@ class FakeRouter:
 
     `apply_writes=False` simulates the firmware accepting a write and then
     ignoring it — the country-code case that `apply_nvram` exists to catch.
+
+    `returns_modify=False` simulates a service that reports no `modify` flag,
+    which the library turns into False whenever `expect_modify` is set
+    (asusrouter modules/service.py::async_call_service). `start_ctrl_led` is
+    such a service, which is why `apply_nvram` can be told not to expect one.
     """
 
     def __init__(
@@ -178,12 +206,14 @@ class FakeRouter:
         *,
         apply_writes: bool = True,
         service_ok: bool = True,
+        returns_modify: bool = True,
     ) -> None:
         self.nvram = dict(DEFAULT_NVRAM if nvram is None else nvram)
         self.data = default_data() if data is None else data
         self.identity = default_identity()
         self.apply_writes = apply_writes
         self.service_ok = service_ok
+        self.returns_modify = returns_modify
 
         self._initial_nvram = dict(self.nvram)
         self.services: list[tuple[str, dict[str, Any]]] = []
@@ -215,6 +245,8 @@ class FakeRouter:
         if self.apply_writes:
             for key, value in (arguments or {}).items():
                 self.nvram[key] = str(value)
+        if expect_modify:
+            return self.service_ok and self.returns_modify
         return self.service_ok
 
     async def async_set_state(self, state: Any, **kwargs: Any) -> bool:

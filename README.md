@@ -2,14 +2,12 @@
 
 Allows you to control a local Asus WRT home router via AI prompts instead of using the Asus web admin interface or ios app.
 
-Use the SKILL for CLI coding agents like Claude Code, Codex. Use the MCP for AI chat agents like ChatGPT, Gemini app, ...
+Use the SKILL for CLI coding agents like Claude Code, Codex. Use the MCP for AI chat agents like ChatGPT, Gemini app. You can install both too.
 
 They both use the included small python program, `asuswrt` that speaks the router's
 unpublished HTTP API — the same one the official ASUS mobile app uses. No SSH,
-no scraping the web UI. It ships two ways:
+no scraping the web UI.
 
-Install either one. Installing both is fine, and is what the Claude Code plugin
-does — the skill prefers the MCP tools when it finds them.
 
 ---
 
@@ -132,6 +130,8 @@ Review the security settings on my Asus router
 Is my Asus router's firmware up to date?
 Is the asus router's admin page reachable from the internet?
 The internet feels slow — check the asus router's CPU, memory and WAN
+Which DNS servers is my Asus router using?
+Can devices open their own ports on my Asus router?
 ```
 
 Change:
@@ -140,6 +140,9 @@ Change:
 Open port 32400 on the asus for my media server
 Turn on the guest WiFi on the asus for my visitors
 Turn off WPS on my Asus router
+Point the asus router's DNS at 8.8.8.8
+Turn off UPnP on my Asus router
+Turn off the lights on my Asus router
 Close the Plex port on the asus again
 ```
 
@@ -237,6 +240,14 @@ around it, rather than in instructions it is asked to follow.
   need the web UI.
 - **WiFi control is partial.** WPS, WPA mode, frame protection and country code
   can be changed. SSID, password, channel and bandwidth cannot.
+- **UPnP is a single switch, and the off→on→off round trip is untested.** The
+  three UPnP variables are all written and read back, but they were already off
+  on the router this was built against, so a genuine on→off transition has not
+  been confirmed on hardware. Check `asuswrt upnp` after disabling it.
+- **DNS control is the WAN pair only.** The resolvers the router forwards to can
+  be set, or handed back to the ISP. IPv6 resolvers, per-client DNS Filter rules
+  and DNS-over-TLS profiles still need the web UI. A successful write proves the
+  value stuck in nvram, not that resolution changed — verify with a lookup.
 - **The country code may be locked.** Stock firmware often derives it from the
   hardware model and ignores the change. The command tells you when that
   happens; the web UI is the fallback.

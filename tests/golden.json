@@ -1,4 +1,52 @@
 {
+  "mutate:dns_auto:dry": {
+    "applied_pf_rules": null,
+    "exit_code": 3,
+    "services": [],
+    "states": [],
+    "stderr": "Would hand the router's WAN DNS back to the ISP's servers\nRe-run with --yes to apply.\n",
+    "stdout": ""
+  },
+  "mutate:dns_auto:yes": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [
+      [
+        "restart_wan_dns 0",
+        {
+          "wan0_dnsenable_x": "1"
+        }
+      ]
+    ],
+    "states": [],
+    "stderr": "",
+    "stdout": "Applied: hand the router's WAN DNS back to the ISP's servers\n  wan0_dnsenable_x       '0' -> '1'\n"
+  },
+  "mutate:dns_set:dry": {
+    "applied_pf_rules": null,
+    "exit_code": 3,
+    "services": [],
+    "states": [],
+    "stderr": "Would point the router's WAN DNS at 8.8.8.8 8.8.4.4 \u2014 every device on the network resolves through it\nRe-run with --yes to apply.\n",
+    "stdout": ""
+  },
+  "mutate:dns_set:yes": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [
+      [
+        "restart_wan_dns 0",
+        {
+          "wan0_dns1_x": "8.8.8.8",
+          "wan0_dns2_x": "8.8.4.4",
+          "wan0_dnsenable_x": "0"
+        }
+      ]
+    ],
+    "states": [],
+    "stderr": "",
+    "stdout": "Applied: point the router's WAN DNS at 8.8.8.8 8.8.4.4 \u2014 every device on the network resolves through it\n  wan0_dnsenable_x       '0' -> '0'  (already set)\n  wan0_dns1_x            '1.1.1.1' -> '8.8.8.8'\n  wan0_dns2_x            '1.0.0.1' -> '8.8.4.4'\n\nConfirm it took effect with: asuswrt dns   (the 'In use' line, a few seconds from now)\nRestore the ISP's DNS with:  asuswrt dns auto --yes\n"
+  },
   "mutate:firmware_upgrade:dry": {
     "applied_pf_rules": null,
     "exit_code": 3,
@@ -76,6 +124,52 @@
     ],
     "stderr": "",
     "stdout": "Applied: guest 2ghz_1 ON\n"
+  },
+  "mutate:led_off:dry": {
+    "applied_pf_rules": null,
+    "exit_code": 3,
+    "services": [],
+    "states": [],
+    "stderr": "Would turn the router's status LEDs OFF\nRe-run with --yes to apply.\n",
+    "stdout": ""
+  },
+  "mutate:led_off:yes": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [
+      [
+        "start_ctrl_led",
+        {
+          "led_val": "0"
+        }
+      ]
+    ],
+    "states": [],
+    "stderr": "",
+    "stdout": "Applied: turn the router's status LEDs OFF\n  led_val                '1' -> '0'\n"
+  },
+  "mutate:led_on:dry": {
+    "applied_pf_rules": null,
+    "exit_code": 3,
+    "services": [],
+    "states": [],
+    "stderr": "Would turn the router's status LEDs ON\nRe-run with --yes to apply.\n",
+    "stdout": ""
+  },
+  "mutate:led_on:yes": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [
+      [
+        "start_ctrl_led",
+        {
+          "led_val": "1"
+        }
+      ]
+    ],
+    "states": [],
+    "stderr": "",
+    "stdout": "Applied: turn the router's status LEDs ON\n  led_val                '1' -> '1'  (already set)\n"
   },
   "mutate:parental_disable:dry": {
     "applied_pf_rules": null,
@@ -248,6 +342,56 @@
     "stderr": "",
     "stdout": "Reboot requested\n"
   },
+  "mutate:upnp_disable:dry": {
+    "applied_pf_rules": null,
+    "exit_code": 3,
+    "services": [],
+    "states": [],
+    "stderr": "Would turn UPnP OFF\nRe-run with --yes to apply.\n",
+    "stdout": ""
+  },
+  "mutate:upnp_disable:yes": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [
+      [
+        "restart_upnp",
+        {
+          "upnp_enable": "0",
+          "wan0_upnp_enable": "0",
+          "wan_upnp_enable": "0"
+        }
+      ]
+    ],
+    "states": [],
+    "stderr": "",
+    "stdout": "Applied: turn UPnP OFF\n  upnp_enable            '0' -> '0'  (already set)\n  wan_upnp_enable        '0' -> '0'  (already set)\n  wan0_upnp_enable       '0' -> '0'  (already set)\n"
+  },
+  "mutate:upnp_enable:dry": {
+    "applied_pf_rules": null,
+    "exit_code": 3,
+    "services": [],
+    "states": [],
+    "stderr": "Would turn UPnP ON \u2014 any program on the network could then open an inbound port to itself without asking\nRe-run with --yes to apply.\n",
+    "stdout": ""
+  },
+  "mutate:upnp_enable:yes": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [
+      [
+        "restart_upnp",
+        {
+          "upnp_enable": "1",
+          "wan0_upnp_enable": "1",
+          "wan_upnp_enable": "1"
+        }
+      ]
+    ],
+    "states": [],
+    "stderr": "",
+    "stdout": "Applied: turn UPnP ON \u2014 any program on the network could then open an inbound port to itself without asking\n  upnp_enable            '0' -> '1'\n  wan_upnp_enable        '0' -> '1'\n  wan0_upnp_enable       '0' -> '1'\n"
+  },
   "mutate:wifi_country:dry": {
     "applied_pf_rules": null,
     "exit_code": 3,
@@ -365,6 +509,14 @@
     "stderr": "",
     "stdout": "NAME                     IP               TYPE           MAC                STATE\nBrother Printer          192.168.50.6     WLAN_2G        AA:BB:CC:00:00:02  online\niPad                     192.168.50.66    WLAN_5G        AA:BB:CC:00:00:01  online\n\n2 online / 2 listed\n"
   },
+  "read:dns_show": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [],
+    "states": [],
+    "stderr": "",
+    "stdout": "WAN DNS           manual   (wan0)\n  Server 1        1.1.1.1\n  Server 2        1.0.0.1\n  In use          1.1.1.1 1.0.0.1\n\nLAN clients use   the router itself\nDNS-over-TLS      OFF\nDNSSEC            OFF\nRebind protection OFF\nForward local     OFF\n"
+  },
   "read:firewall": {
     "applied_pf_rules": null,
     "exit_code": 0,
@@ -393,6 +545,14 @@
     "states": [],
     "stderr": "",
     "stdout": "NETWORK      STATE    SSID\n2ghz_1       OFF      ASUS_CC_2G_Guest\n5ghz_1       ON       ASUS_CC_5G_Guest\n"
+  },
+  "read:led_show": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [],
+    "states": [],
+    "stderr": "",
+    "stdout": "LEDs              ON\n"
   },
   "read:nvram": {
     "applied_pf_rules": null,
@@ -441,6 +601,14 @@
     "states": [],
     "stderr": "",
     "stdout": "Model      RT-AX59U\nFirmware   3.0.0.4.388.34011  (merlin=False)\nMAC        BC:FC:E7:00:00:01\nSerial     SERIAL123\nAiMesh     True\n"
+  },
+  "read:upnp_show": {
+    "applied_pf_rules": null,
+    "exit_code": 0,
+    "services": [],
+    "states": [],
+    "stderr": "",
+    "stdout": "UPnP              OFF\n\n  switches\n    upnp_enable              OFF\n    wan_upnp_enable          OFF\n    wan0_upnp_enable         OFF\n\n  Secure mode     ON   (only lets a device map a port to itself)\n  Advertisement   ON\n  Listen port     auto\n"
   },
   "read:wan": {
     "applied_pf_rules": null,

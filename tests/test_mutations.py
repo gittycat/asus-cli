@@ -315,3 +315,40 @@ def test_a_refused_service_call_exits_nonzero(argv):
     result = invoke(router, *argv)
     assert result.code == cli.EXIT_ERROR
     assert "FAILED" in result.out
+
+
+# -- idempotence -----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ("dns", "set", "--server1", "1.1.1.1", "--server2", "1.0.0.1", "--yes"),
+        ("led", "on", "--yes"),
+        ("wifi", "security", "--band", "2ghz", "--mode", "wpa2", "--yes"),
+    ],
+    ids=lambda a: " ".join(a),
+)
+def test_re_applying_a_setting_that_is_already_correct_succeeds(argv):
+    """A router with nothing to change reports no `modify`, and that is not a
+    failure — the requested values are in place, which is what was asked for.
+
+    Caught on real hardware: `dns set` with the servers already configured
+    printed FAILED and exited 1 while every value read back correct.
+    """
+    router = FakeRouter(returns_modify=False)
+    result = invoke(router, *argv)
+
+    assert result.code == 0, result.out
+    assert "Applied" in result.out
+    assert "already set" in result.out
+
+
+def test_a_value_the_firmware_refuses_still_fails(router_that_ignores_writes):
+    """The other half: an empty `unchanged` is the verdict, so a value that did
+    not take must still report FAILED."""
+    result = invoke(router_that_ignores_writes, "led", "off", "--yes")
+
+    assert result.code == cli.EXIT_ERROR
+    assert "FAILED" in result.out
+    assert "led_val" in result.out

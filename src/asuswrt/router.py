@@ -286,6 +286,7 @@ async def apply_nvram(
     router: AsusRouter,
     values: dict[str, str],
     service: str,
+    expect_modify: bool = True,
 ) -> dict[str, Any]:
     """Write nvram variables, restart a service, and report what actually stuck.
 
@@ -297,10 +298,23 @@ async def apply_nvram(
     Some variables are read-only on stock firmware even though the write is
     accepted — country code is the known case — so the values are read back
     and returned as before/after rather than trusting the success flag.
+
+    `expect_modify` decides what the router's acknowledgement means. With it
+    set, `ok` is the router's own `modify` flag (asusrouter
+    modules/service.py::async_call_service). A few services never return that
+    flag, and for those a successful write would otherwise report as a
+    failure — `start_ctrl_led` is the known case, and the library passes
+    expect_modify=False for exactly that reason (modules/led.py). Pass False
+    for those and let the read-back decide.
     """
     names = list(values)
     before = await read_nvram(router, names)
-    ok = await router.async_run_service(service=service, arguments=dict(values), apply=True)
+    ok = await router.async_run_service(
+        service=service,
+        arguments=dict(values),
+        apply=True,
+        expect_modify=expect_modify,
+    )
     after = await read_nvram(router, names)
 
     return {

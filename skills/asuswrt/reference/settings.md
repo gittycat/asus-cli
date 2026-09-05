@@ -205,6 +205,155 @@ correct value for a home router.
 - [Should I enable ASUS DoS Protection](https://www.snbforums.com/threads/should-i-enable-asus-dos-protection.45641/)
 - [DoS protection breaks Cloudflare / Emby](https://www.snbforums.com/threads/firewall-enable-dos-protection-i-have-to-turn-it-off-for-cloudflare-emby-to-work.55058/)
 
+### DNS — `hardware`
+
+Not covered by any library data type; read straight from nvram. The WAN
+settings are keyed by unit, so read `wan["internet"]["unit"]` first — `wan_dns1_x`
+with no index is empty on real hardware while `wan0_dns1_x` holds the value, and
+the live unit becomes 1 after a dual-WAN failover.
+
+| Variable | Meaning |
+|---|---|
+| `wan<N>_dnsenable_x` | `1` take DNS from the ISP, `0` use the pair below |
+| `wan<N>_dns1_x` / `wan<N>_dns2_x` | the manual servers. IPv4 only — IPv6 lives in `ipv6_dns1_x` |
+| `wan<N>_dns` | what is actually in use, space-separated |
+| `dhcp_dns1_x` / `dhcp_dns2_x` | what LAN clients are told to use, if not the router |
+| `dhcpd_dns_router` | `1` advertise the router itself as the resolver |
+| `lan_dnsenable_x` | LAN-side resolver override |
+| `dnspriv_enable` | DNS-over-TLS |
+| `dnssec_enable` | DNSSEC validation |
+| `dns_norebind` | DNS rebind protection |
+| `dns_fwd_local` | forward local-domain queries upstream |
+
+**Applied with `restart_wan_dns <unit>`, and the unit is not optional.**
+`hardware`, the hard way. Bare `restart_wan_dns` returns success and does
+nothing: `wan<N>_dns1_x` reads back as the new server while `wan<N>_dns` — the
+pair dnsmasq actually forwards to — still holds the old one, so every lookup
+keeps going to the previous resolver. `restart_dnsmasq` does not fix it either;
+dnsmasq reads `wan<N>_dns`, and only the WAN script rewrites that. Observed on
+RT-AX59U:
+
+| Service called | `wan0_dns` afterwards |
+|---|---|
+| `restart_wan_dns` | `1.1.1.1 1.0.0.1` — unchanged |
+| `restart_dnsmasq` | `1.1.1.1 1.0.0.1` — unchanged |
+| `restart_wan_dns 0` | `8.8.8.8 8.8.4.4` |
+
+The library's `AsusSystem.RESTART_WAN_DNS` comment calls the number optional. On
+this firmware it is not. `wan<N>_dns` settles a few seconds after the call, so
+`apply_nvram`'s immediate read-back cannot confirm it — read `wan<N>_dns`
+separately, or run `asuswrt dns` and look at `In use`.
+
+**Choosing a resolver is not cosmetic.** Google, and most large CDNs, pick which
+server delivers content from the *resolver's* apparent location, refined by the
+EDNS Client Subnet option — the resolver passing along a truncated form of the
+client's network. Resolvers that decline to send ECS, which 1.1.1.1 does
+deliberately for privacy, leave the CDN guessing.
+
+Measured on this network (`hardware`, 2026-09-05, WAN 115.186.199.235):
+
+| Router forwards to | `redirector.googlevideo.com` resolves to | ping |
+|---|---|---|
+| 1.1.1.1 | 142.251.119.139 | 207 ms avg, 129–316 |
+| 8.8.8.8 | 192.178.187.102 | 11 ms |
+
+`dig +short TXT o-o.myaddr.l.google.com` is the check: through 8.8.8.8 it
+answers `edns0-client-subnet 115.186.199.0/24`, through 1.1.1.1 it answers a
+Cloudflare address and no subnet. The symptom is a site that loads while its
+video or downloads stall — `youtube.com` is anycast and fine, `googlevideo.com`
+is unicast and 18x further away. Resolvers that send ECS include `8.8.8.8` /
+`8.8.4.4` and `9.9.9.11`; `1.1.1.1` and plain `9.9.9.9` do not.
+
+### DNS Filter — a considered answer, not a settled one
+
+**Default recommendation: do not propose it.** Unlike the Trend Micro and DoS
+entries above, this is not a permanent no — there is a specific signal that
+makes it the right answer, named at the end. Read this before recommending it
+either way; the feature sounds more useful than it is.
+
+| Variable | Live value observed | Meaning |
+|---|---|---|
+| `dnsfilter_enable_x` | `0` | on/off |
+| `dnsfilter_mode` | `0` | global mode |
+| `dnsfilter_rulelist` | `` | per-client rules |
+| `dnsfilter_custom1..3` | `8.8.8.8` | three custom resolver slots |
+
+Names and values are `hardware`; **whether the feature does anything on stock
+firmware is `unverified`.** DNS Filter is primarily an AsusWRT-**Merlin**
+feature, and this router is stock (`merlin: false`). The variables exist and
+carry sensible defaults, but that is also what vestigial variables from a shared
+codebase look like. Confirming it would mean enabling it and watching whether a
+device's queries are actually redirected. No command wraps it.
+
+**What it does.** The router advertises itself as the resolver over DHCP, and
+devices normally comply — but complying is voluntary. A device can address
+`1.1.1.1` directly and ignore the router. DNS Filter adds firewall rules that
+intercept outbound port 53 and redirect it to a resolver you choose, globally or
+per client by MAC. It converts a suggestion into enforcement.
+
+**Why that is narrower than it sounds — the part to tell the user.** It only
+catches plain DNS on port 53, and that is not how bypass happens now:
+
+- **DNS-over-HTTPS** is ordinary HTTPS on port 443. Firefox and Chrome do this
+  by default in many configurations. DNS Filter cannot see it, let alone
+  redirect it.
+- **iCloud Private Relay** tunnels DNS and traffic to Apple. When it is on, both
+  DNS Filter and the router's own WAN DNS setting are irrelevant for that device.
+
+So it enforces against the compliant and the old, not against anything modern or
+deliberate. Recommending it as a way to "make sure devices use your DNS" would
+overstate what it delivers.
+
+**It also breaks things.** VPN clients and corporate split-DNS need their own
+resolver. Redirecting those silently produces failures that are hard to trace
+back to the router.
+
+**The signal that makes it the right answer:** one device misbehaving while
+others are fine — a smart TV or streaming stick that buffers or fails to resolve
+while a laptop on the same network is healthy. Plenty of TVs, Chromecasts and IoT
+devices ship with a resolver compiled in and ignore DHCP entirely, and those *do*
+use plain port 53, so DNS Filter does catch them. That asymmetry between devices
+is the evidence. Absent it, changing the WAN DNS (`asuswrt dns set`) already
+covers every device that complies, which is nearly all of them.
+
+Recorded 2026-09-05, after WAN DNS was moved off 1.1.1.1 for the ECS reason
+above. The question that prompted it — "is DNS Filter needed here?" — was
+answered no on this network because the Mac was already resolving through the
+router, so there was nothing to enforce.
+
+### UPnP — `hardware` for the names, `unverified` for which one is master
+
+| Variable | Meaning |
+|---|---|
+| `upnp_enable` | UPnP on/off |
+| `wan_upnp_enable` | the same, active-unit alias |
+| `wan<N>_upnp_enable` | the same, per unit |
+| `upnp_secure` | `1` a device may only map a port to itself |
+| `upnp_mnp` | advertise the service on the LAN |
+| `upnp_port` | listen port; `0` means auto |
+
+All three switches read `0` on the router this was built against, so there was
+no way to observe which one the firmware treats as authoritative. `set_upnp`
+therefore writes all three, the way `set_wps` writes both WPS flags — whichever
+is the real one, the result is the state that was asked for, and the read-back
+covers all three. Note the contrast with DNS: the bare `wan_` alias is populated
+here, while its `wan_dns1_x` sibling is empty. Do not generalise either way.
+
+Applied with `restart_upnp`. **The off→on→off round trip has not been run on
+hardware** — UPnP was already off and enabling it, even briefly, is the exact
+hole the command exists to close. Writing `0` over `0` is confirmed to be
+accepted and to read back correctly; a genuine on→off transition is not.
+
+### LEDs — `hardware`
+
+| Variable | Meaning |
+|---|---|
+| `led_val` | `1` lights on, `0` off. The live variable |
+| `led_disable` | empty on RT-AX59U — do not read this one |
+
+Applied with `start_ctrl_led`, which returns no `modify` flag — see the service
+call note above.
+
 ### Firewall and filtering — `unverified`
 
 Not covered by any library data type; the CLI reads them straight from nvram.
@@ -236,10 +385,40 @@ to restart. The services this tool uses:
 |---|---|
 | `restart_firewall` | Port forwarding, filtering, parental control |
 | `restart_wireless` | Radios and guest networks |
+| `restart_wan_dns <unit>` | WAN resolvers — the unit is required, see below |
+| `start_ctrl_led` | Status lights |
+| `restart_upnp` | UPnP daemon |
 | `reboot` | The whole router |
 
 An RT-AX59U reports 97 available services (`hardware`). The library's
 `AsusSystem` enum lists the ones it knows how to call.
+
+### Not every service reports whether it changed anything
+
+`library`. `async_call_service` returns the router's `modify` flag when
+`expect_modify` is set, which is the default. A service that does not send that
+flag therefore reports `False` — a successful write that reads as a failure.
+`start_ctrl_led` is the known case, and the library passes `expect_modify=False`
+for it (`modules/led.py`). `router.apply_nvram` takes the same argument; pass
+`expect_modify=False` for such a service and let the read-back decide.
+
+### `async_set_state` returns `False` for a state it cannot set — it does not raise
+
+`library`. This one is worth knowing before wrapping any new `Asus*` enum as a
+write. `modules/state.py::set_state` looks the state up in `AsusStateMap`, and
+where the entry is `None` — `AsusState.DDNS`, `AsusState.CONNECTION`,
+`AsusState.NONE` — or where the module has no `set_state` function, it logs at
+`debug` and returns `False`. Nothing is sent to the router.
+
+With library logging off, which is the normal case, that is indistinguishable
+from a router that received the request and refused it. `AsusDDNS` is the trap
+in practice: the enum exists, `async_set_state(AsusDDNS.ACTIVE)` type-checks and
+runs, and it silently does nothing.
+
+**Before wrapping a new state as a write, confirm both:** its module defines
+`set_state`, *and* its `AsusStateMap` entry is not `None`. If either fails, use
+`apply_nvram` with the right service instead — that is how `dns` and `led` are
+implemented.
 
 ---
 
