@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # Remove every trace of this project from a Mac: the CLI, the MCP
-# registrations in Claude Code and Codex, the Claude Code plugin, the skill
-# leftovers from before v0.8.0, and the Claude Desktop extension. Safe to run
-# when only some of them are present.
+# registrations in Claude Code and Codex, the Claude Code plugin and its saved
+# settings, the skill leftovers from before v0.8.0, and the Claude Desktop
+# extension along with its virtualenv and install record. Safe to run when only
+# some of them are present.
+#
+# Not touched: ~/.cache/uv. Since v0.9.0 the plugin and the extension resolve
+# their dependencies through uv, which caches wheels there — shared with every
+# other uv project on the machine, so removing it is never this script's call.
 #
 # Run from inside a clone and it also returns the working tree to the state
 # git clone leaves it in, so the next install starts from nothing.
@@ -22,7 +27,9 @@ for arg in "$@"; do
     -y|--yes)      APPLY=1 ;;
     --password)    DROP_PASSWORD=1 ;;
     --repo-all)    DROP_CLAUDE_DIR=1 ;;
-    -h|--help)     sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    # The whole comment header, however long it grows: every line from the
+    # shebang to the first line that is not a comment.
+    -h|--help)     sed -n '2,${/^[^#]/q;p;}' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *)             echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -112,6 +119,33 @@ for p in "$HOME/.claude/skills/asuswrt" "$HOME/.agents/skills/asuswrt"; do
     do_rm "$p"
   fi
 done
+# Since v0.9.0 the plugin carries userConfig switches, and Claude Code keeps
+# their values in settings.json under pluginConfigs. Uninstalling the plugin
+# does not necessarily clear them, and a stale entry would silently reapply if
+# the plugin is ever installed again.
+SETTINGS="$HOME/.claude/settings.json"
+if [ -f "$SETTINGS" ] && command -v python3 >/dev/null 2>&1; then
+  if python3 -c "
+import json,sys
+try: d=json.load(open('$SETTINGS'))
+except Exception: sys.exit(1)
+cfg=d.get('pluginConfigs') or {}
+sys.exit(0 if any('asuswrt' in k.lower() for k in cfg) else 1)
+" 2>/dev/null; then
+    hit "remove the asuswrt entry from ~/.claude/settings.json pluginConfigs"
+    if [ "$APPLY" -eq 1 ]; then
+      if python3 -c "
+import json
+p='$SETTINGS'
+d=json.load(open(p))
+cfg=d.get('pluginConfigs') or {}
+for k in [k for k in cfg if 'asuswrt' in k.lower()]:
+    del cfg[k]
+json.dump(d, open(p,'w'), indent=2)
+" 2>/dev/null; then ran; else say "      ! could not edit $SETTINGS"; fi
+    fi
+  fi
+fi
 
 # ------------------------------------------------------------------ Codex ---
 say ""
@@ -131,23 +165,61 @@ if grep -q '^\[mcp_servers\.asuswrt\]' "$HOME/.codex/config.toml" 2>/dev/null; t
     hit "[mcp_servers.asuswrt] in ~/.codex/config.toml — codex is not on PATH, delete the block by hand"
   fi
 fi
-# ChatGPT (the app and the web) keeps connectors server-side, so nothing local
-# to delete. Remove it there under Settings -> Connectors if you added it.
+# ChatGPT accepts only remote MCP servers over HTTPS — it cannot start a stdio
+# child process at all, so this project was never registered there and there is
+# nothing local to delete. If you reached it through a tunnel, remove that
+# connector under Settings -> Plugins (called Connectors before July 2026).
+say "  ChatGPT: nothing local — it only supports remote HTTPS servers, not stdio"
 
 # --------------------------------------------------------- Claude Desktop ---
 say ""
 say "Claude Desktop"
 DESKTOP="$HOME/Library/Application Support/Claude"
-if grep -q '"asuswrt"' "$DESKTOP/claude_desktop_config.json" 2>/dev/null; then
-  hit "\"asuswrt\" in claude_desktop_config.json — remove that entry by hand"
+# Only a real mcpServers entry counts. A bare grep for the name matches this
+# repo's own path in unrelated preference keys and cries wolf.
+if [ -f "$DESKTOP/claude_desktop_config.json" ] && command -v python3 >/dev/null 2>&1; then
+  if python3 -c "
+import json,sys
+try: d=json.load(open('$DESKTOP/claude_desktop_config.json'))
+except Exception: sys.exit(1)
+sys.exit(0 if 'asuswrt' in (d.get('mcpServers') or {}) else 1)
+" 2>/dev/null; then
+    hit "\"asuswrt\" under mcpServers in claude_desktop_config.json — remove that entry by hand"
+  fi
 fi
+# The extension is two paths named for its id (local.mcpb.<author>.<name>): the
+# unpacked bundle, which since v0.9.0 also holds the .venv uv builds on first
+# launch, and a one-line enabled/disabled file beside it.
 while IFS= read -r p; do
   [ -n "$p" ] || continue
   hit "rm -rf $p"
   do_rm "$p"
-done < <(find "$DESKTOP" -maxdepth 3 -iname '*asus*' 2>/dev/null)
+done < <(find "$DESKTOP/Claude Extensions" "$DESKTOP/Claude Extensions Settings" \
+           -maxdepth 1 -iname '*asuswrt*' 2>/dev/null)
+# Deleting those two leaves the install register behind, and Desktop still
+# believes the extension is installed. Drop just our entry, not the file.
+INSTALLS="$DESKTOP/extensions-installations.json"
+if [ -f "$INSTALLS" ] && grep -q 'asuswrt' "$INSTALLS" 2>/dev/null; then
+  if command -v python3 >/dev/null 2>&1; then
+    hit "remove the asuswrt entry from extensions-installations.json"
+    if [ "$APPLY" -eq 1 ]; then
+      if python3 -c "
+import json
+p='$INSTALLS'
+d=json.load(open(p))
+ext=d.get('extensions') or {}
+for k in [k for k in ext if 'asuswrt' in k.lower()]:
+    del ext[k]
+json.dump(d, open(p,'w'), indent=2)
+" 2>/dev/null; then ran; else say "      ! could not edit $INSTALLS"; fi
+    fi
+  else
+    hit "asuswrt in extensions-installations.json — python3 missing, drop the entry by hand"
+  fi
+fi
 # A downloaded bundle, if it is still sitting where the README's curl left it.
-for p in "$HOME/asuswrt.mcpb" "$HOME/Downloads/asuswrt.mcpb"; do
+for p in "$HOME/asuswrt.mcpb" "$HOME/Downloads/asuswrt.mcpb" \
+         "$HOME/asuswrt-0.8.0-legacy.mcpb" "$HOME/Downloads/asuswrt-0.8.0-legacy.mcpb"; do
   if [ -e "$p" ]; then
     hit "rm ${p/#$HOME/\~}"
     do_rm "$p"
