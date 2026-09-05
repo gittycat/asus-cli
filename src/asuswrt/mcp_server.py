@@ -203,7 +203,10 @@ async def get_firewall_and_filters() -> dict:
     (`TM_EULA=0`, `bwdpi_db_enable=0`): it is one bundled consent covering
     AiProtection, Traffic Analyzer, Adaptive QoS and Web History, and
     accepting it starts sending browsing data to Trend Micro. Never propose
-    enabling either.
+    enabling either. Sub-flags such as `wrs_mals_enable` may read `1` while
+    `bwdpi_db_enable` is `0`: configured but not running, which is the wanted
+    end state. Sources for both decisions are in docs/settings.md, under
+    "Features with a settled answer".
     """
     return await run(ops.firewall, name="get_firewall_and_filters", timeout=READ_TIMEOUT)
 
@@ -264,7 +267,14 @@ async def list_guest_networks() -> dict:
 
 async def get_wireless() -> dict:
     """Radio, WPA mode, management frame protection, country code and WPS
-    state for both bands."""
+    state for both bands.
+
+    Reading it for "is my wifi secure?", three things decide the answer:
+    WPS on (the PIN exchange is brute-forceable — turn it off, nothing modern
+    needs it); `psk2` with mfp `disabled` (WPA2 with no management frame
+    protection, so deauthentication attacks work freely); and a country code
+    that differs between bands, where a band left on `AA` runs the most
+    restrictive channel and power set and loses throughput."""
     return await run(ops.wifi, name="get_wireless", timeout=READ_TIMEOUT)
 
 
@@ -273,7 +283,14 @@ async def check_firmware_update() -> dict:
     installed and offered versions. This makes the router contact ASUS's
     servers and takes about 5 seconds — it is read-only (nothing is written)
     but not free, so do not call it as part of a routine status check. Use
-    the returned `latest` version with upgrade_firmware's `to`."""
+    the returned `latest` version with upgrade_firmware's `to`.
+
+    It always asks ASUS. The version cached on the router is refreshed only
+    by its own periodic check, which is off by default
+    (`webs_update_enable=0`), so the stored number can be arbitrarily old and
+    is not used. Report three things and stop — what is installed, what is
+    offered, and whether that is an upgrade. If ASUS could not be reached,
+    say could not verify; that is not the same answer as up to date."""
     return await run(
         lambda router: ops.firmware(router, FIRMWARE_CHECK_SECONDS),
         name="check_firmware_update",
@@ -289,6 +306,12 @@ async def get_nvram(names: Annotated[list[NvramName], Field(min_length=1)]) -> d
     `bwdpi_db_enable=0`) are the intended states, not gaps to close. Report
     them as configured and never propose enabling either; the reasons are in
     the get_firewall_and_filters description.
+
+    Variable names, encodings, and which of them are verified against real
+    hardware are in docs/settings.md. There is deliberately no write
+    counterpart: every supported write is a named tool with its own
+    validation and read-back. If a setting has no tool, say it needs the web
+    UI rather than looking for a way to write it here.
     """
     return await run(lambda router: ops.nvram(router, list(names)), name="get_nvram", timeout=READ_TIMEOUT)
 
@@ -530,6 +553,12 @@ async def set_wifi_security(
     SAFETY: this restarts both radios — every wireless client on the
     affected band(s) disconnects and reconnects.
 
+    Prefer `wpa2wpa3` over `wpa3` on a household network: mixed mode turns on
+    management frame protection while WPA2-only devices — printers, smart
+    plugs, older IoT — keep working. If a legacy device will not associate
+    afterwards, relax the frame protection (mfp `disabled`) on that band
+    rather than dropping the whole network back to WPA2.
+
     confirm=False previews the current nvram values and writes nothing.
     confirm=True applies it; the result's before/after/unchanged proves
     whether the firmware actually took the value.
@@ -565,7 +594,12 @@ async def set_wifi_country(band: AnyBand, code: CountryCode, confirm: bool = Fal
     affected band(s) disconnects and reconnects. Country code is usually
     locked to the hardware SKU on stock firmware, so the write may be
     accepted and then silently ignored; the result's before/after/unchanged
-    is what actually decides success, not the acknowledgement.
+    is what actually decides success, not the acknowledgement. When it does
+    not stick, say so and point at the web UI rather than retrying.
+
+    Read `reg_spec` and `location_code` with get_nvram first — they say which
+    region the firmware believes it is in. Picking the wrong code is a
+    regulatory problem, not just a performance one.
 
     confirm=False previews the current nvram values and writes nothing.
     confirm=True applies it.
@@ -824,9 +858,14 @@ async def upgrade_firmware(to: str, beta: bool = False, confirm: bool = False) -
     request — it reports no progress and nothing about whether the flash
     itself succeeds. Call get_system afterwards to confirm the new version.
 
-    `to` is required and must be the exact version string from
-    check_firmware_update's `latest` — this refuses rather than flash a
-    version nobody named.
+    `to` is required and must be the exact version string from the
+    check_firmware_update call you just made — never from an earlier run and
+    never from memory. This refuses rather than flash a version nobody named,
+    and refuses outright when the latest version could not be verified.
+
+    Show the user the offered version and its release note, and tell them the
+    house loses connectivity for five to ten minutes, before you pass
+    confirm=True.
 
     confirm=False previews what would be flashed and writes nothing.
     confirm=True applies it.
