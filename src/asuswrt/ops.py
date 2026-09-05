@@ -21,6 +21,7 @@ raised as `ValueError` carrying the same message the CLI has always printed.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 from typing import Any
 
 from asusrouter import AsusData
@@ -71,6 +72,50 @@ WIFI_VARS = ["wps_enable", "wps_enable_x", "wps_multiband", "wps_band_x"] + [
     for suffix in ("radio", "auth_mode_x", "crypto", "mfp", "country_code")
 ]
 
+# DNS settings that do not depend on which WAN unit is active. The per-unit
+# ones (wan<N>_dnsenable_x, wan<N>_dns1_x, wan<N>_dns2_x, wan<N>_dns) are built
+# in dns() once the unit is known. Names verified against a live RT-AX59U.
+DNS_VARS = [
+    "dhcp_dns1_x",       # DNS handed to LAN clients, if not the router itself
+    "dhcp_dns2_x",
+    "dhcpd_dns_router",  # 1 = advertise the router as the resolver
+    "lan_dnsenable_x",
+    "dnspriv_enable",    # DNS-over-TLS
+    "dnssec_enable",
+    "dns_fwd_local",
+    "dns_norebind",      # DNS rebind protection
+]
+
+# The service that makes a WAN DNS change take effect. The unit is part of the
+# service string and is NOT optional, whatever the library's enum comment says:
+# on RT-AX59U bare `restart_wan_dns` returns success and leaves wan<N>_dns
+# pointing at the old servers, so nvram reads back correctly while every lookup
+# still goes to the previous resolver. `restart_dnsmasq` does not help either —
+# dnsmasq reads wan<N>_dns, which only the WAN script rewrites. Verified on
+# hardware; see reference/settings.md.
+DNS_SERVICE = "restart_wan_dns {unit}"
+
+# LED brightness/state. `led_val` is the live variable; `led_disable` is empty
+# on RT-AX59U. `start_ctrl_led` is the service the library itself calls
+# (asusrouter modules/led.py), and it returns no `modify` flag.
+LED_VAR = "led_val"
+LED_SERVICE = "start_ctrl_led"
+
+# UPnP. Three switches carry the same on/off state and it is not settled which
+# one this firmware treats as the master — all three read 0 on the router this
+# was built against, so there was no way to tell them apart by observation.
+# Every one of them is therefore written, the same way `set_wps` writes both
+# WPS flags: whichever is authoritative, the result is the state that was
+# asked for, and the read-back covers all three. `wan<N>_` is per-unit; the
+# bare `wan_` alias is populated here even though its `wan_dns1_x` sibling is
+# not, so it is written too rather than assumed to be dead.
+UPNP_ENABLE_VARS = ("upnp_enable", "wan_upnp_enable", "wan{unit}_upnp_enable")
+
+# Read alongside them for context; not written.
+UPNP_INFO_VARS = ["upnp_secure", "upnp_mnp", "upnp_port"]
+
+UPNP_SERVICE = "restart_upnp"
+
 # The router queries ASUS asynchronously and the API gives no completion
 # signal, so the result is read back after a pause.
 FIRMWARE_CHECK_SECONDS = 5.0
@@ -78,6 +123,50 @@ FIRMWARE_CHECK_SECONDS = 5.0
 
 def _bands(selection: str) -> list[int]:
     return [0, 1] if selection == "both" else [BANDS[selection]]
+
+
+async def _wan_unit(router: Any) -> int:
+    """Which WAN port is live, as the index used in `wan<N>_*` nvram names.
+
+    Never hardcode 0. `wan_dns1_x` (no index) is empty on real hardware while
+    `wan0_dns1_x` holds the value, and on a dual-WAN router the live unit
+    becomes 1 after a failover. The library nests this: there is no top-level
+    unit, only `wan["internet"]["unit"]`.
+    """
+    data = await router.async_get_data(AsusData.WAN) or {}
+    internet = data.get("internet", {}) if isinstance(data, dict) else {}
+    unit = internet.get("unit")
+    return int(unit) if isinstance(unit, int) or str(unit).isdigit() else 0
+
+
+def _dns_names(unit: int) -> list[str]:
+    """The per-unit DNS variables, in the order they are reported."""
+    return [
+        f"wan{unit}_dnsenable_x",
+        f"wan{unit}_dns1_x",
+        f"wan{unit}_dns2_x",
+        f"wan{unit}_dns",
+    ]
+
+
+def _dns_server(value: str, label: str) -> str:
+    """Validate one DNS server address, or say precisely what is wrong with it.
+
+    IPv4 only. `wan<N>_dns1_x` is an IPv4 field — AsusWRT keeps IPv6 resolvers
+    in `ipv6_dns1_x`, which this tool does not write — so an IPv6 literal here
+    would be accepted by the field and then ignored.
+    """
+    text = value.strip()
+    try:
+        address = ipaddress.ip_address(text)
+    except ValueError:
+        raise ValueError(f"{label} is not an IP address: {value!r}") from None
+    if address.version != 4:
+        raise ValueError(
+            f"{label} is IPv6 ({text}). This field is IPv4 only; AsusWRT keeps "
+            "IPv6 resolvers in ipv6_dns1_x, which this tool does not write."
+        )
+    return text
 
 
 def _split_rulelist(value: Any) -> list[str]:
@@ -206,6 +295,41 @@ async def health(router: Any, cpu_sample: float) -> dict[str, Any]:
 
 async def wan(router: Any) -> dict[str, Any]:
     return await router.async_get_data(AsusData.WAN) or {}
+
+
+async def dns(router: Any) -> dict[str, Any]:
+    """Which resolvers the router forwards to, and what it tells LAN clients.
+
+    Reported per WAN unit because that is how the nvram is keyed; `unit` is
+    included so the caller can see which `wan<N>_*` names these values came
+    from rather than having to assume.
+    """
+    unit = await _wan_unit(router)
+    raw = await read_nvram(router, [*_dns_names(unit), *DNS_VARS])
+    return {"unit": unit, "nvram": raw}
+
+
+async def led(router: Any) -> dict[str, Any]:
+    return await read_nvram(router, [LED_VAR])
+
+
+async def upnp(router: Any) -> dict[str, Any]:
+    """Whether the router lets devices open their own inbound ports.
+
+    Reported per WAN unit for the same reason DNS is: one of the three
+    switches is keyed by unit.
+    """
+    unit = await _wan_unit(router)
+    names = [v.format(unit=unit) for v in UPNP_ENABLE_VARS]
+    raw = await read_nvram(router, [*names, *UPNP_INFO_VARS])
+    return {
+        "unit": unit,
+        # On unless every switch says otherwise: a single `1` anywhere is
+        # enough for miniupnpd to be listening, so the summary must not be
+        # cheerier than the raw values.
+        "enabled": any(str(raw.get(n)) == "1" for n in names),
+        "nvram": raw,
+    }
 
 
 async def clients(router: Any, online_only: bool = False) -> list[dict[str, Any]]:
@@ -384,6 +508,69 @@ async def set_wifi_security(
         values[f"wl{i}_mfp"] = mfp_value
 
     return await apply_nvram(router, values, "restart_wireless")
+
+
+async def set_dns(
+    router: Any,
+    server1: str | None = None,
+    server2: str | None = None,
+    automatic: bool = False,
+) -> dict[str, Any]:
+    """Point the router's WAN DNS at named servers, or back at the ISP's.
+
+    `automatic` writes only the enable flag and leaves the stored pair alone,
+    which is what the web UI does — the servers stay visible for the next time
+    manual mode is turned back on.
+
+    A resolver that strips EDNS Client Subnet (1.1.1.1 does, by design) hides
+    the client's network from authoritative servers, so CDNs that map by
+    resolver location send traffic to a distant node. See
+    reference/settings.md.
+    """
+    if automatic and (server1 or server2):
+        raise ValueError(
+            "Give either automatic (use the ISP's DNS) or explicit servers, not both."
+        )
+    # Covers a lone server2 as well: without a first server there is nothing
+    # to write, whatever the second one says.
+    if not automatic and not server1:
+        raise ValueError("Give a first DNS server, or ask for automatic (the ISP's DNS).")
+
+    unit = await _wan_unit(router)
+    values = {f"wan{unit}_dnsenable_x": "1" if automatic else "0"}
+    if not automatic:
+        values[f"wan{unit}_dns1_x"] = _dns_server(str(server1), "The first DNS server")
+        values[f"wan{unit}_dns2_x"] = (
+            _dns_server(server2, "The second DNS server") if server2 else ""
+        )
+
+    result = await apply_nvram(router, values, DNS_SERVICE.format(unit=unit))
+    return {**result, "unit": unit, "automatic": automatic}
+
+
+async def set_upnp(router: Any, enabled: bool) -> dict[str, Any]:
+    """Turn UPnP on or off.
+
+    Off is the safe state. UPnP lets any program on the LAN ask the router to
+    open an inbound port to itself, with no authentication and no record the
+    owner is likely to see — the same thing `portforward add` does, minus the
+    decision.
+    """
+    unit = await _wan_unit(router)
+    value = "1" if enabled else "0"
+    values = {v.format(unit=unit): value for v in UPNP_ENABLE_VARS}
+
+    result = await apply_nvram(router, values, UPNP_SERVICE)
+    return {**result, "unit": unit}
+
+
+async def set_led(router: Any, enabled: bool) -> dict[str, Any]:
+    # start_ctrl_led returns no `modify` flag, so the acknowledgement means
+    # nothing here and the read-back is the only evidence — hence
+    # expect_modify=False. The library does the same (modules/led.py).
+    return await apply_nvram(
+        router, {LED_VAR: "1" if enabled else "0"}, LED_SERVICE, expect_modify=False
+    )
 
 
 async def set_wifi_country(router: Any, band: str, code: str) -> dict[str, Any]:

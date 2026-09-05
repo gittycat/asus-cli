@@ -49,3 +49,9 @@ def pf_router() -> FakeRouter:
         ],
     }
     return FakeRouter(data=data)
+
+
+@pytest.fixture
+def router_that_ignores_writes() -> FakeRouter:
+    """Accepts every write and keeps the old value — the country-code case."""
+    return FakeRouter(apply_writes=False)

@@ -73,6 +73,76 @@ def wan(payload: dict[str, Any]) -> list[str]:
     return lines
 
 
+def dns(payload: dict[str, Any]) -> list[str]:
+    """Which resolvers the router forwards to, and what LAN clients are told.
+
+    The WAN unit is printed because it is part of the nvram names — a reader
+    comparing this against `asuswrt nvram get ...` needs to know whether to
+    ask for wan0_ or wan1_.
+    """
+    unit = payload["unit"]
+    raw = payload["nvram"]
+    automatic = str(raw.get(f"wan{unit}_dnsenable_x")) == "1"
+
+    lan = (
+        "the router itself"
+        if str(raw.get("dhcpd_dns_router")) == "1"
+        else " ".join(
+            v for v in (raw.get("dhcp_dns1_x"), raw.get("dhcp_dns2_x")) if v
+        )
+        or "-"
+    )
+
+    return [
+        f"WAN DNS           {'automatic (from the ISP)' if automatic else 'manual'}"
+        f"   (wan{unit})",
+        f"  Server 1        {raw.get(f'wan{unit}_dns1_x') or '-'}",
+        f"  Server 2        {raw.get(f'wan{unit}_dns2_x') or '-'}",
+        f"  In use          {raw.get(f'wan{unit}_dns') or '-'}",
+        "",
+        f"LAN clients use   {lan}",
+        f"DNS-over-TLS      {_onoff(raw.get('dnspriv_enable'))}",
+        f"DNSSEC            {_onoff(raw.get('dnssec_enable'))}",
+        f"Rebind protection {_onoff(raw.get('dns_norebind'))}",
+        f"Forward local     {_onoff(raw.get('dns_fwd_local'))}",
+    ]
+
+
+def led(payload: dict[str, Any]) -> list[str]:
+    return [f"LEDs              {_onoff(payload.get('led_val'))}"]
+
+
+def upnp(payload: dict[str, Any]) -> list[str]:
+    """UPnP state, with every switch shown because any one of them turns it on."""
+    raw = payload["nvram"]
+    lines = [
+        f"UPnP              {'ON' if payload['enabled'] else 'OFF'}",
+        "",
+        "  switches",
+    ]
+    lines += [
+        f"    {name:<24} {_onoff(value)}"
+        for name, value in raw.items()
+        if name.endswith("upnp_enable")
+    ]
+    lines += [
+        "",
+        f"  Secure mode     {_onoff(raw.get('upnp_secure'))}"
+        "   (only lets a device map a port to itself)",
+        f"  Advertisement   {_onoff(raw.get('upnp_mnp'))}",
+        # "0" is the auto setting, and it is a truthy string — say so rather
+        # than printing a bare 0 that reads like a missing value.
+        f"  Listen port     {port if (port := str(raw.get('upnp_port') or '0')) != '0' else 'auto'}",
+    ]
+    if payload["enabled"]:
+        lines += [
+            "",
+            "Any program on the network can open an inbound port to itself while",
+            "this is on, without asking. Turn it off with: asuswrt upnp disable",
+        ]
+    return lines
+
+
 def client_lines(rows: list[dict[str, Any]]) -> list[str]:
     lines = [f"{'NAME':<24} {'IP':<16} {'TYPE':<14} {'MAC':<18} STATE"]
     lines += [
@@ -228,10 +298,13 @@ def overview(
 def apply_report(result: dict[str, Any], description: str) -> list[str]:
     """The before/after report for an nvram write.
 
-    async_run_service reports whether the router accepted the request, not
-    whether the value stuck, so this is built from the read-back in `result`.
+    The verdict is the read-back, never `result["ok"]`. `ok` is the router's
+    `modify` flag, and a router that had nothing to change reports no
+    modification — so keying off it calls a correct, idempotent write a
+    failure. What matters is whether the requested values are in place now,
+    which is exactly what an empty `unchanged` says.
     """
-    lines = [f"{'Applied' if result['ok'] else 'FAILED'}: {description}"]
+    lines = [f"{'Applied' if not result['unchanged'] else 'FAILED'}: {description}"]
     for name, after in result["after"].items():
         before = result["before"].get(name)
         if name in result["unchanged"]:

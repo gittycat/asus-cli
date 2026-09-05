@@ -146,6 +146,27 @@ async def cmd_wan(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+async def cmd_dns_show(args: argparse.Namespace) -> int:
+    async with connect() as router:
+        payload = await ops.dns(router)
+        emit(payload, render.dns(payload), args.json)
+    return EXIT_OK
+
+
+async def cmd_led_show(args: argparse.Namespace) -> int:
+    async with connect() as router:
+        payload = await ops.led(router)
+        emit(payload, render.led(payload), args.json)
+    return EXIT_OK
+
+
+async def cmd_upnp_show(args: argparse.Namespace) -> int:
+    async with connect() as router:
+        payload = await ops.upnp(router)
+        emit(payload, render.upnp(payload), args.json)
+    return EXIT_OK
+
+
 async def cmd_show(args: argparse.Namespace) -> int:
     """Every read in one connection.
 
@@ -330,10 +351,13 @@ def _report_apply(result: dict[str, Any], description: str, as_json: bool) -> in
     """Print the before/after of an nvram write and pick an exit code.
 
     async_run_service reports whether the router accepted the request, not
-    whether the value stuck, so the read-back is what decides success here.
+    whether the value stuck, so the read-back is what decides success here —
+    and only the read-back. `result["ok"]` is the router's `modify` flag,
+    which is false whenever there was nothing to modify, so re-applying a
+    setting that is already correct would otherwise exit non-zero.
     """
     emit(result, render.apply_report(result, description), as_json)
-    return EXIT_OK if result["ok"] and not result["unchanged"] else EXIT_ERROR
+    return EXIT_OK if not result["unchanged"] else EXIT_ERROR
 
 
 async def cmd_wifi_show(args: argparse.Namespace) -> int:
@@ -387,6 +411,98 @@ async def cmd_wifi_country(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
         return exit_code
+
+
+# --------------------------------------------------------------------------
+# DNS and LEDs
+# --------------------------------------------------------------------------
+
+# Printed after a successful `dns set`. Two things the read-back cannot say.
+#
+# First, that the write stuck in nvram is not that the resolver changed: the
+# effective pair lives in wan<N>_dns and takes a few seconds to catch up, so
+# `asuswrt dns` is what confirms it and `In use` is the line to read.
+#
+# Second, the way back. Bad resolvers break name resolution for the whole
+# house, and the reader needs to know the recovery command still works — this
+# tool reaches the router by address, so it never depended on DNS.
+DNS_AFTER_APPLY = (
+    "Confirm it took effect with: asuswrt dns   (the 'In use' line, a few seconds from now)\n"
+    "Restore the ISP's DNS with:  asuswrt dns auto --yes"
+)
+
+
+async def cmd_dns_set(args: argparse.Namespace) -> int:
+    # Validate before the dry-run message, not after: a mistyped address
+    # should be refused without printing a confirmation for a change that
+    # could never be applied.
+    try:
+        first = ops._dns_server(args.server1, "The first DNS server")
+        second = ops._dns_server(args.server2, "The second DNS server") if args.server2 else ""
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return EXIT_ERROR
+
+    servers = " ".join(s for s in (first, second) if s)
+    description = (
+        f"point the router's WAN DNS at {servers} "
+        "— every device on the network resolves through it"
+    )
+    if needs_confirm(args, description):
+        return EXIT_NEEDS_CONFIRM
+
+    async with connect() as router:
+        try:
+            result = await ops.set_dns(router, args.server1, args.server2)
+        except ValueError as e:
+            print(str(e), file=sys.stderr)
+            return EXIT_ERROR
+
+        exit_code = _report_apply(result, description, args.json)
+        if exit_code == EXIT_OK and not args.json:
+            print(f"\n{DNS_AFTER_APPLY}")
+        return exit_code
+
+
+async def cmd_dns_auto(args: argparse.Namespace) -> int:
+    description = "hand the router's WAN DNS back to the ISP's servers"
+    if needs_confirm(args, description):
+        return EXIT_NEEDS_CONFIRM
+
+    async with connect() as router:
+        try:
+            result = await ops.set_dns(router, automatic=True)
+        except ValueError as e:
+            print(str(e), file=sys.stderr)
+            return EXIT_ERROR
+        return _report_apply(result, description, args.json)
+
+
+async def cmd_upnp(args: argparse.Namespace) -> int:
+    enabled = args.action == "enable"
+    description = f"turn UPnP {'ON' if enabled else 'OFF'}"
+    if enabled:
+        description += (
+            " — any program on the network could then open an inbound port "
+            "to itself without asking"
+        )
+    if needs_confirm(args, description):
+        return EXIT_NEEDS_CONFIRM
+
+    async with connect() as router:
+        result = await ops.set_upnp(router, enabled)
+        return _report_apply(result, description, args.json)
+
+
+async def cmd_led(args: argparse.Namespace) -> int:
+    enabled = args.action == "on"
+    description = f"turn the router's status LEDs {'ON' if enabled else 'OFF'}"
+    if needs_confirm(args, description):
+        return EXIT_NEEDS_CONFIRM
+
+    async with connect() as router:
+        result = await ops.set_led(router, enabled)
+        return _report_apply(result, description, args.json)
 
 
 # --------------------------------------------------------------------------
@@ -596,6 +712,29 @@ def build_parser() -> argparse.ArgumentParser:
     # -- network -----------------------------------------------------------
     noun("wan", "internet connection detail", cmd_wan)
     noun("clients", "connected and known devices", cmd_clients, opts=flags(online))
+
+    # -- dns ---------------------------------------------------------------
+    dns = noun("dns", "WAN resolvers and what LAN clients are told", cmd_dns_show)
+
+    p = mutation(dns.add_parser("set", help="set the WAN DNS servers"))
+    p.add_argument("--server1", required=True, help="first resolver, e.g. 8.8.8.8")
+    p.add_argument("--server2", help="second resolver, e.g. 8.8.4.4")
+    p.set_defaults(func=cmd_dns_set)
+
+    p = mutation(dns.add_parser("auto", help="use whatever DNS the ISP hands out"))
+    p.set_defaults(func=cmd_dns_auto)
+
+    # -- upnp --------------------------------------------------------------
+    upnp = noun("upnp", "automatic inbound port opening", cmd_upnp_show)
+    for action in ("enable", "disable"):
+        p = mutation(upnp.add_parser(action, help=f"{action} UPnP"))
+        p.set_defaults(func=cmd_upnp, action=action)
+
+    # -- leds --------------------------------------------------------------
+    led = noun("led", "router status lights", cmd_led_show)
+    for action in ("on", "off"):
+        p = mutation(led.add_parser(action, help=f"turn the status LEDs {action}"))
+        p.set_defaults(func=cmd_led, action=action)
 
     # -- firewall and parental control -------------------------------------
     noun("firewall", "firewall, filters and parental control state", cmd_firewall_show)

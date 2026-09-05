@@ -137,22 +137,22 @@ def _tool_names(server) -> set[str]:
     return {t.name for t in asyncio.run(server.list_tools())}
 
 
-def test_default_gate_registers_only_the_12_read_tools():
+def test_default_gate_registers_only_the_15_read_tools():
     names = _tool_names(mcp_server.build_server())
     assert names == READ_NAMES
-    assert len(names) == 12
+    assert len(names) == 15
 
 
-def test_writes_gate_adds_the_8_write_tools():
+def test_writes_gate_adds_the_11_write_tools():
     names = _tool_names(mcp_server.build_server(allow_writes=True))
     assert names == READ_NAMES | WRITE_NAMES
-    assert len(names) == 20
+    assert len(names) == 26
 
 
-def test_both_gates_register_all_22_tools():
+def test_both_gates_register_all_28_tools():
     names = _tool_names(mcp_server.build_server(allow_writes=True, allow_dangerous=True))
     assert names == READ_NAMES | WRITE_NAMES | DANGEROUS_NAMES
-    assert len(names) == 22
+    assert len(names) == 28
 
 
 def test_dangerous_gate_alone_registers_nothing_extra():
@@ -635,6 +635,142 @@ def test_a_refused_add_port_forward_is_a_tool_error(server, patched):
         "name": "Game", "port": 27015, "to_ip": "192.168.50.40", "confirm": True,
     })
     assert result.is_error
+
+
+# -- dns and led -------------------------------------------------------------
+
+
+def test_get_dns_reports_the_unit_and_the_servers(server, patched, router):
+    patched(router)
+    data = payload(call(server, "get_dns"))
+    assert data["unit"] == 0
+    assert data["nvram"]["wan0_dns1_x"] == "1.1.1.1"
+
+
+def test_get_led_reports_led_val(server, patched, router):
+    patched(router)
+    assert payload(call(server, "get_led"))["led_val"] == "1"
+
+
+def test_set_wan_dns_preview_does_not_touch(server, patched, router):
+    patched(router)
+    data = payload(call(server, "set_wan_dns", {"server1": "8.8.8.8", "server2": "8.8.4.4"}))
+
+    assert data["status"] == "preview"
+    assert data["current"]["nvram"]["wan0_dns1_x"] == "1.1.1.1"
+    assert any("resolves through this" in w for w in data["warnings"])
+    assert not router.touched
+
+
+def test_set_wan_dns_confirm_matches_its_cli_twin(server, patched, router):
+    patched(router)
+    data = payload(
+        call(server, "set_wan_dns", {"server1": "8.8.8.8", "server2": "8.8.4.4", "confirm": True})
+    )
+
+    assert data["status"] == "applied"
+    assert router.services == [
+        (
+            "restart_wan_dns 0",
+            {"wan0_dnsenable_x": "0", "wan0_dns1_x": "8.8.8.8", "wan0_dns2_x": "8.8.4.4"},
+        )
+    ]
+
+
+def test_set_wan_dns_automatic_confirm(server, patched, router):
+    patched(router)
+    payload(call(server, "set_wan_dns", {"automatic": True, "confirm": True}))
+    assert router.services == [("restart_wan_dns 0", {"wan0_dnsenable_x": "1"})]
+
+
+def test_set_wan_dns_rejects_ipv6(server, patched, router):
+    patched(router)
+    result = call(server, "set_wan_dns", {"server1": "2001:4860:4860::8888", "confirm": True})
+    assert result.is_error
+    assert "ipv6_dns1_x" in error_text(result)
+    assert not router.touched
+
+
+def test_set_wan_dns_rejects_no_target(server, patched, router):
+    patched(router)
+    result = call(server, "set_wan_dns", {"confirm": True})
+    assert result.is_error
+    assert not router.touched
+
+
+def test_set_wan_dns_reports_a_write_the_firmware_ignored(server, patched):
+    router = FakeRouter(apply_writes=False)
+    patched(router)
+    result = call(server, "set_wan_dns", {"server1": "8.8.8.8", "confirm": True})
+    assert result.is_error
+    assert "did not take" in error_text(result)
+
+
+def test_set_led_enabled_preview_does_not_touch(server, patched, router):
+    patched(router)
+    data = payload(call(server, "set_led_enabled", {"enabled": False}))
+    assert data["status"] == "preview"
+    assert data["current"] == {"led_val": "1"}
+    assert not router.touched
+
+
+def test_set_led_enabled_confirm_matches_its_cli_twin(server, patched, router):
+    patched(router)
+    data = payload(call(server, "set_led_enabled", {"enabled": False, "confirm": True}))
+    assert data["status"] == "applied"
+    assert router.services == [("start_ctrl_led", {"led_val": "0"})]
+
+
+def test_set_led_enabled_succeeds_without_a_modify_flag(server, patched):
+    """start_ctrl_led reports no `modify`; that must not read as a failure."""
+    router = FakeRouter(returns_modify=False)
+    patched(router)
+    data = payload(call(server, "set_led_enabled", {"enabled": False, "confirm": True}))
+    assert data["status"] == "applied"
+
+
+# -- upnp --------------------------------------------------------------------
+
+
+def test_get_upnp_summarises_and_shows_every_switch(server, patched, router):
+    patched(router)
+    data = payload(call(server, "get_upnp"))
+    assert data["enabled"] is False
+    assert data["nvram"]["upnp_enable"] == "0"
+
+
+def test_get_upnp_is_on_when_any_switch_is_on(server, patched):
+    router = FakeRouter()
+    router.nvram["wan0_upnp_enable"] = "1"
+    patched(router)
+    assert payload(call(server, "get_upnp"))["enabled"] is True
+
+
+def test_set_upnp_enabled_preview_does_not_touch(server, patched, router):
+    patched(router)
+    data = payload(call(server, "set_upnp_enabled", {"enabled": True}))
+
+    assert data["status"] == "preview"
+    assert any("without asking" in w for w in data["warnings"])
+    assert not router.touched
+
+
+def test_set_upnp_disable_preview_carries_no_warning(server, patched, router):
+    """Turning it off is the safe direction; nothing to warn about."""
+    patched(router)
+    assert payload(call(server, "set_upnp_enabled", {"enabled": False}))["warnings"] == []
+
+
+def test_set_upnp_enabled_confirm_matches_its_cli_twin(server, patched):
+    router = FakeRouter()
+    router.nvram.update({"upnp_enable": "1", "wan_upnp_enable": "1", "wan0_upnp_enable": "1"})
+    patched(router)
+
+    data = payload(call(server, "set_upnp_enabled", {"enabled": False, "confirm": True}))
+    assert data["status"] == "applied"
+    assert router.services == [
+        ("restart_upnp", {"upnp_enable": "0", "wan_upnp_enable": "0", "wan0_upnp_enable": "0"})
+    ]
 
 
 # -- ConfigError and AsusRouterError -----------------------------------------

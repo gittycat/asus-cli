@@ -17,7 +17,7 @@ open two logins at once.
 
 Gates, read once at startup (changing them means restarting the server):
 
-    ASUSWRT_MCP_ALLOW_WRITES=1      registers the 8 write tools
+    ASUSWRT_MCP_ALLOW_WRITES=1      registers the 11 write tools
     ASUSWRT_MCP_ALLOW_DANGEROUS=1   (together with the gate above) registers
                                      reboot_router and upgrade_firmware
 
@@ -208,6 +208,44 @@ async def get_firewall_and_filters() -> dict:
     return await run(ops.firewall, name="get_firewall_and_filters", timeout=READ_TIMEOUT)
 
 
+async def get_dns() -> dict:
+    """Which resolvers the router forwards to, and what it tells LAN clients.
+
+    Returns the WAN unit the settings belong to (nvram is keyed `wan<N>_*`),
+    the manual/automatic flag, both servers, the pair actually in use, and the
+    DNS-over-TLS, DNSSEC, rebind-protection and LAN-advertisement settings.
+
+    Worth reading whenever a specific site is slow to start or fails to load
+    while the network is otherwise fine: a resolver that strips EDNS Client
+    Subnet (1.1.1.1 does, deliberately) hides the client's network from
+    authoritative servers, so CDNs that pick a node by resolver location can
+    land traffic far away even though the connection itself is healthy.
+    """
+    return await run(ops.dns, name="get_dns", timeout=READ_TIMEOUT)
+
+
+async def get_led() -> dict:
+    """Whether the router's status lights are on (`led_val`: 1 on, 0 off)."""
+    return await run(ops.led, name="get_led", timeout=READ_TIMEOUT)
+
+
+async def get_upnp() -> dict:
+    """Whether UPnP is on — whether devices can open their own inbound ports.
+
+    Returns `enabled` plus the three underlying switches, because any one of
+    them being `1` is enough for UPnP to be running; `enabled` is the OR of
+    them, not a single variable.
+
+    Policy: `enabled: false` is the intended state, not a gap. UPnP lets any
+    program on the LAN ask the router to open a port from the internet to
+    itself, with no authentication and nothing the owner is likely to see —
+    the same effect as add_port_forward, minus the decision. Report it as
+    correctly configured when it is off; if it is on, say plainly that this
+    is worth turning off and offer set_upnp_enabled.
+    """
+    return await run(ops.upnp, name="get_upnp", timeout=READ_TIMEOUT)
+
+
 async def get_parental_control() -> dict:
     """Parental control on/off state and its rules."""
     return await run(ops.parental, name="get_parental_control", timeout=READ_TIMEOUT)
@@ -260,6 +298,9 @@ READS: list[tuple[Callable, ToolAnnotations]] = [
     (get_system, ToolAnnotations(read_only_hint=True, open_world_hint=False, title="Router identity")),
     (get_health, ToolAnnotations(read_only_hint=True, open_world_hint=False, title="Router health")),
     (get_wan, ToolAnnotations(read_only_hint=True, open_world_hint=False, title="WAN status")),
+    (get_dns, ToolAnnotations(read_only_hint=True, open_world_hint=False, title="DNS settings")),
+    (get_led, ToolAnnotations(read_only_hint=True, open_world_hint=False, title="Status lights")),
+    (get_upnp, ToolAnnotations(read_only_hint=True, open_world_hint=False, title="UPnP state")),
     (list_clients, ToolAnnotations(read_only_hint=True, open_world_hint=False, title="Connected devices")),
     (
         get_firewall_and_filters,
@@ -469,7 +510,7 @@ async def set_wps_enabled(enabled: bool, confirm: bool = False) -> dict:
             warnings = ["The WPS PIN exchange is brute-forceable."] if enabled else []
             return _preview(description, current, warnings)
         result = await ops.set_wps(router, enabled)
-        if not result["ok"] or result["unchanged"]:
+        if result["unchanged"]:
             raise ValueError(
                 f"FAILED: {description}. The firmware did not take: {result['unchanged']}"
             )
@@ -508,7 +549,7 @@ async def set_wifi_security(
                 description, current, ["Every wireless client on the affected band(s) will reconnect."]
             )
         result = await ops.set_wifi_security(router, band, mode, mfp)
-        if not result["ok"] or result["unchanged"]:
+        if result["unchanged"]:
             raise ValueError(
                 f"FAILED: {description}. The firmware did not take: {result['unchanged']}"
             )
@@ -542,7 +583,7 @@ async def set_wifi_country(band: AnyBand, code: CountryCode, confirm: bool = Fal
                 ["Every wireless client on the affected band(s) will reconnect."],
             )
         result = await ops.set_wifi_country(router, band, code)
-        if not result["ok"] or result["unchanged"]:
+        if result["unchanged"]:
             raise ValueError(
                 f"FAILED: {description}. Country code is usually locked to the hardware "
                 f"SKU on stock firmware. Did not take: {result['unchanged']}"
@@ -550,6 +591,128 @@ async def set_wifi_country(band: AnyBand, code: CountryCode, confirm: bool = Fal
         return {"status": "applied", "change": description, **result}
 
     return await run(op, name="set_wifi_country", timeout=WRITE_TIMEOUT, write=True)
+
+
+async def set_wan_dns(
+    server1: str | None = None,
+    server2: str | None = None,
+    automatic: bool = False,
+    confirm: bool = False,
+) -> dict:
+    """Set which resolvers the router forwards DNS to, or hand it back to the ISP.
+
+    Pass `automatic=true` for the ISP's own servers, or `server1` (and
+    optionally `server2`) for explicit ones. IPv4 only — AsusWRT keeps IPv6
+    resolvers in a separate field this tool does not write.
+
+    SAFETY: every device on the network resolves through this. Bad servers
+    break name resolution house-wide. It is recoverable — call this again with
+    `automatic=true`, which keeps working because this tool reaches the router
+    by address and never depended on DNS.
+
+    Choosing a resolver is not cosmetic. A resolver that strips EDNS Client
+    Subnet (1.1.1.1 does, deliberately, for privacy) hides the client's
+    network from authoritative servers, so a CDN that picks a node by resolver
+    location can send video and download traffic to a distant one while the
+    connection itself measures fine. Resolvers that send ECS include 8.8.8.8 /
+    8.8.4.4 and 9.9.9.11; 1.1.1.1 and plain 9.9.9.9 do not.
+
+    confirm=False previews the current values and writes nothing.
+    confirm=True applies it; the result's before/after/unchanged proves
+    whether the firmware actually took the value.
+    """
+    if automatic:
+        description = "hand the router's WAN DNS back to the ISP's servers"
+    else:
+        wanted = " ".join(s for s in (server1, server2) if s)
+        description = f"point the router's WAN DNS at {wanted}"
+
+    async def op(router: Any) -> dict:
+        if not confirm:
+            unit = await ops._wan_unit(router)
+            current = await read_nvram(router, [*ops._dns_names(unit), *ops.DNS_VARS])
+            return _preview(
+                description,
+                {"unit": unit, "nvram": current},
+                [
+                    "Every device on the network resolves through this.",
+                    "Recover with set_wan_dns(automatic=true) if resolution breaks.",
+                ],
+            )
+        result = await ops.set_dns(router, server1, server2, automatic)
+        if result["unchanged"]:
+            raise ValueError(
+                f"FAILED: {description}. The firmware did not take: {result['unchanged']}"
+            )
+        return {"status": "applied", "change": description, **result}
+
+    return await run(op, name="set_wan_dns", timeout=WRITE_TIMEOUT, write=True)
+
+
+async def set_upnp_enabled(enabled: bool, confirm: bool = False) -> dict:
+    """Turn UPnP on or off.
+
+    SAFETY: off is the safe state and the one to prefer. Enabling it lets any
+    program on the network open an inbound port from the internet to itself,
+    without authentication and without a record the owner is likely to
+    check — malware and misconfigured software both use it. Never enable it
+    unless the user asked for UPnP in those words, and say what it exposes
+    before doing so. Existing port forwards are unaffected either way; they
+    live in a separate list (list_port_forwards).
+
+    Writes all three UPnP switches, since which one this firmware treats as
+    the master is not settled.
+
+    confirm=False previews the current values and writes nothing.
+    confirm=True applies it; the result's before/after/unchanged proves
+    whether the firmware actually took the value.
+    """
+    description = f"turn UPnP {'ON' if enabled else 'OFF'}"
+
+    async def op(router: Any) -> dict:
+        if not confirm:
+            warnings = (
+                [
+                    "Any program on the network could then open an inbound port "
+                    "to itself without asking."
+                ]
+                if enabled
+                else []
+            )
+            return _preview(description, await ops.upnp(router), warnings)
+        result = await ops.set_upnp(router, enabled)
+        if result["unchanged"]:
+            raise ValueError(
+                f"FAILED: {description}. The firmware did not take: {result['unchanged']}"
+            )
+        return {"status": "applied", "change": description, **result}
+
+    return await run(op, name="set_upnp_enabled", timeout=WRITE_TIMEOUT, write=True)
+
+
+async def set_led_enabled(enabled: bool, confirm: bool = False) -> dict:
+    """Turn the router's status lights on or off.
+
+    Cosmetic — it changes nothing about how the router routes. Turning them
+    off is a common want for a router in a bedroom or living room.
+
+    confirm=False previews the current value and writes nothing.
+    confirm=True applies it; the result's before/after/unchanged proves
+    whether the firmware actually took the value.
+    """
+    description = f"turn the router's status LEDs {'ON' if enabled else 'OFF'}"
+
+    async def op(router: Any) -> dict:
+        if not confirm:
+            return _preview(description, await read_nvram(router, [ops.LED_VAR]))
+        result = await ops.set_led(router, enabled)
+        if result["unchanged"]:
+            raise ValueError(
+                f"FAILED: {description}. The firmware did not take: {result['unchanged']}"
+            )
+        return {"status": "applied", "change": description, **result}
+
+    return await run(op, name="set_led_enabled", timeout=WRITE_TIMEOUT, write=True)
 
 
 WRITES: list[tuple[Callable, ToolAnnotations]] = [
@@ -599,6 +762,24 @@ WRITES: list[tuple[Callable, ToolAnnotations]] = [
         set_wifi_country,
         ToolAnnotations(
             destructive_hint=False, idempotent_hint=True, open_world_hint=False, title="Wireless country code"
+        ),
+    ),
+    (
+        set_wan_dns,
+        ToolAnnotations(
+            destructive_hint=False, idempotent_hint=True, open_world_hint=False, title="WAN DNS servers"
+        ),
+    ),
+    (
+        set_upnp_enabled,
+        ToolAnnotations(
+            destructive_hint=False, idempotent_hint=True, open_world_hint=True, title="UPnP on/off"
+        ),
+    ),
+    (
+        set_led_enabled,
+        ToolAnnotations(
+            destructive_hint=False, idempotent_hint=True, open_world_hint=False, title="Status lights on/off"
         ),
     ),
 ]

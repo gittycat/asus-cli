@@ -60,6 +60,9 @@ bare noun means `show`. Pick the noun; you never have to guess the command.
 | `system` | model, firmware, MAC, serial, AiMesh — nothing that moves |
 | `system health` | uptime, CPU, RAM, WAN summary — everything that moves |
 | `wan` | internet connection detail |
+| `dns` | WAN resolvers, and what LAN clients are told to use |
+| `upnp` | whether devices can open their own inbound ports |
+| `led` | router status lights |
 | `clients` | known devices; `--online` for only the connected ones |
 | `firewall` | firewall, DoS, filters, parental control summary |
 | `parental` | parental control state and rules |
@@ -117,6 +120,10 @@ asuswrt parental disable --yes
 asuswrt wifi wps disable --yes                   # or enable
 asuswrt wifi set-security --band both|2ghz|5ghz --mode wpa2|wpa2wpa3|wpa3 [--mfp capable] --yes
 asuswrt wifi set-country --band 5ghz --code AU --yes
+asuswrt dns set --server1 8.8.8.8 [--server2 8.8.4.4] --yes
+asuswrt dns auto --yes                           # back to the ISP's resolvers
+asuswrt upnp disable --yes                       # or enable
+asuswrt led on --yes                             # or off
 asuswrt firmware upgrade --yes [--to VERSION]    # downloads, flashes, reboots
 asuswrt reboot --yes
 ```
@@ -141,7 +148,10 @@ answer to `security` / `country`.
 3. **Port forwarding exposes a device to the internet.** Say which device and
    port become reachable before adding a rule, and confirm the user means it
    when the target is 22, 3389, 445 or a database port. Check the global switch
-   too — rules exist but do nothing while it is off.
+   too — rules exist but do nothing while it is off. **UPnP is the same exposure without
+   the decision** — any program on the LAN can open its own inbound port while
+   it is on. Off is the right state; never enable it unless the user asked for
+   UPnP in those words.
 4. **nvram access is read-only on purpose.** Writes exist only as named
    commands. If a setting has no command, say it needs the web UI rather than
    improvising a raw write.
@@ -149,6 +159,12 @@ answer to `security` / `country`.
    wireless client. Say so before applying. Both read the value back and report
    `before -> after`; a country code write is often refused by stock firmware,
    and that read-back is the only thing that tells you.
+6. **Changing WAN DNS changes name resolution for every device.** Say so before
+   applying, and say how to undo it: `asuswrt dns auto` restores the ISP's
+   servers and keeps working even when nothing resolves, because this tool
+   reaches the router by address. A successful write is not proof the resolver
+   changed — nvram taking the value and the service applying it are separate
+   things; verify with a lookup, not with the exit code.
 
 ## Features to leave off
 
