@@ -1,11 +1,11 @@
 {
-  "$schema": "https://raw.githubusercontent.com/anthropics/mcpb/main/dist/mcpb-manifest-v0.3.schema.json",
-  "manifest_version": "0.3",
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/mcpb/main/schemas/mcpb-manifest-v0.4.schema.json",
+  "manifest_version": "0.4",
   "name": "asuswrt",
   "display_name": "ASUS Router Control",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Inspect and control an ASUS (AsusWRT) home router: connected devices, WAN, firewall, port forwarding, guest WiFi and WiFi security.",
-  "long_description": "Talks to the router's HTTP API — the same one the official ASUS mobile app uses. No SSH and no web-UI scraping.\n\nThis bundle is the wiring, not the server: install the server first with `uv tool install \"asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-ai-tools\"`, and put the router's admin password in `~/.config/asuswrt/.env`. The password is read on this machine only and is never sent to a model.\n\nThe extension is read-only until you turn on \"Allow changes to the router\". Even then, every change is returned as a preview first and applied only on a second, confirmed call.\n\nTwo router settings this extension will not suggest turning on: AiProtection (and Traffic Analyzer, Adaptive QoS, Web History), because they are all gated behind one Trend Micro EULA that sends browsing data off the router; and DoS protection, because it only rate-limits traffic to roughly one packet per second, which breaks legitimate connections without stopping a real flood. Both reading as off is the expected state, not a problem to fix.",
+  "long_description": "Talks to the router's HTTP API — the same one the official ASUS mobile app uses. No SSH and no web-UI scraping.\n\nThe bundle carries the server. Claude Desktop uses uv to fetch Python 3.13 and the dependencies on first launch, so the only thing to install beforehand is uv itself. Put the router's admin password in `~/.config/asuswrt/.env`; it is read on this machine only and is never sent to a model.\n\nThe extension is read-only until you turn on \"Allow changes to the router\". Even then, every change is returned as a preview first and applied only on a second, confirmed call.\n\nTwo router settings this extension will not suggest turning on: AiProtection (and Traffic Analyzer, Adaptive QoS, Web History), because they are all gated behind one Trend Micro EULA that sends browsing data off the router; and DoS protection, because it only rate-limits traffic to roughly one packet per second, which breaks legitimate connections without stopping a real flood. Both reading as off is the expected state, not a problem to fix.",
   "author": {
     "name": "gittycat",
     "url": "https://github.com/gittycat"
@@ -21,32 +21,27 @@
   "license": "MIT",
   "keywords": ["asus", "asuswrt", "router", "network", "wifi", "port-forwarding", "home-network"],
   "server": {
-    "type": "binary",
-    "entry_point": "server/launch.sh",
+    "type": "uv",
+    "entry_point": "src/asuswrt/mcp_server.py",
     "mcp_config": {
-      "command": "/bin/sh",
-      "args": ["${__dirname}/server/launch.sh"],
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "${__dirname}",
+        "--locked",
+        "--no-dev",
+        "--extra",
+        "mcp",
+        "asuswrt-mcp"
+      ],
       "env": {
-        "ASUSWRT_MCP_BIN": "${user_config.server_path}",
         "ASUSWRT_MCP_ALLOW_WRITES": "${user_config.allow_writes}",
         "ASUSWRT_MCP_ALLOW_DANGEROUS": "${user_config.allow_dangerous}"
-      },
-      "platform_overrides": {
-        "win32": {
-          "command": "cmd.exe",
-          "args": ["/c", "${__dirname}\\server\\launch.cmd"]
-        }
       }
     }
   },
   "user_config": {
-    "server_path": {
-      "type": "string",
-      "title": "Path to asuswrt-mcp",
-      "description": "Where uv put the server. Leave as it is unless you installed it somewhere else.",
-      "default": "${HOME}/.local/bin/asuswrt-mcp",
-      "required": false
-    },
     "allow_writes": {
       "type": "boolean",
       "title": "Allow changes to the router",
@@ -94,7 +89,10 @@
     { "name": "upgrade_firmware", "description": "Download and flash a named firmware version" }
   ],
   "compatibility": {
-    "claude_desktop": ">=0.10.0",
-    "platforms": ["darwin", "win32"]
+    "claude_desktop": ">=1.40609.0",
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "python": ">=3.13"
+    }
   }
 }

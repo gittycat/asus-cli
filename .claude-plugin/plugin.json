@@ -1,8 +1,8 @@
 {
   "name": "asuswrt",
   "displayName": "ASUS Router Control",
-  "version": "0.8.0",
-  "description": "Inspect and control an ASUS (AsusWRT) router from Claude Code — clients, WAN, firewall state, port forwarding, guest WiFi, WiFi security. Requires the asuswrt program: install it first with `uv tool install \"git+https://github.com/gittycat/asuswrt-ai-tools\" --with mcp`, otherwise the MCP server has no `asuswrt-mcp` command to start.",
+  "version": "0.9.0",
+  "description": "Inspect and control an ASUS (AsusWRT) router from Claude Code — clients, WAN, firewall state, port forwarding, guest WiFi, WiFi security. Needs uv on PATH; it fetches Python and the dependencies on first run. Put the router's admin password in ~/.config/asuswrt/.env.",
   "author": {
     "name": "Main Admin",
     "email": "accounts@kiluna.com"
@@ -10,9 +10,39 @@
   "repository": "https://github.com/gittycat/asuswrt-ai-tools",
   "license": "MIT",
   "keywords": ["asus", "asuswrt", "router", "network", "port-forwarding", "home-network", "wifi", "wpa3"],
+  "userConfig": {
+    "allow_writes": {
+      "type": "boolean",
+      "title": "Allow changes to the router",
+      "description": "Off: Claude can only read the router. On: it can also add port forwards, switch guest WiFi on or off, and change WiFi security — always showing a preview and asking before it applies anything.",
+      "default": false,
+      "required": false
+    },
+    "allow_dangerous": {
+      "type": "boolean",
+      "title": "Allow reboot and firmware upgrade",
+      "description": "Needs the setting above as well. Adds two tools that restart the router or flash new firmware.",
+      "default": false,
+      "required": false
+    }
+  },
   "mcpServers": {
     "asuswrt": {
-      "command": "asuswrt-mcp"
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "${CLAUDE_PLUGIN_ROOT}",
+        "--locked",
+        "--no-dev",
+        "--extra",
+        "mcp",
+        "asuswrt-mcp"
+      ],
+      "env": {
+        "ASUSWRT_MCP_ALLOW_WRITES": "${user_config.allow_writes}",
+        "ASUSWRT_MCP_ALLOW_DANGEROUS": "${user_config.allow_dangerous}"
+      }
     }
   }
 }

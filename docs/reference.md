@@ -19,8 +19,13 @@ password is missing, it prints every path it searched.
 
 `asuswrt`, `asuswrt-mcp` and `asuswrt-probe` land in `~/.local/bin`. Run
 `uv tool update-shell` once if that directory is not on your `PATH`. GUI apps
-never inherit your shell `PATH`, which is why the Claude Desktop config uses an
-absolute path.
+never inherit your shell `PATH`, which is why a hand-written Claude Desktop
+config has to use an absolute path.
+
+Since v0.9.0 this is needed only for the terminal command, for Codex, and for a
+hand-registered `claude mcp add`. The Claude Code plugin and the Claude Desktop
+extension each carry the server and run it through `uv run`, so neither needs
+anything installed globally beyond uv itself.
 
 To install from a local clone instead of GitHub:
 
@@ -71,6 +76,12 @@ reasoning and sources are in [settings.md](settings.md).
 
 It speaks MCP over **stdio**, so the host starts `asuswrt-mcp` as a child
 process. There is no URL, no port and no network listener.
+
+Verified against the `mcp` Python SDK 2.1.1 and protocol revision
+**2026-07-28**. The `initialize` handshake answers `2025-11-25` on purpose:
+2026-07-28 is not reachable through `initialize` at all — it is offered via
+`server/discover` — and the SDK handles both ends of that. Nothing here pins a
+protocol version.
 
 ### What the agent is allowed to do
 
@@ -133,27 +144,61 @@ ever flashes whatever happened to turn up.
 
 ### The Claude Desktop extension
 
-`extension/asuswrt.mcpb` is an [MCP Bundle](https://github.com/anthropics/mcpb)
-— a zip holding a `manifest.json`, an icon and a launcher script. Claude Desktop
-reads the manifest, shows the install dialog, and stores the two switches as
-`ASUSWRT_MCP_ALLOW_WRITES` and `ASUSWRT_MCP_ALLOW_DANGEROUS` — the same
-variables the terminal hosts pass.
+`extension/asuswrt.mcpb` is an [MCP Bundle](https://github.com/modelcontextprotocol/mcpb)
+— a zip holding `manifest.json`, an icon, and the server as source. Claude
+Desktop reads the manifest, shows the install dialog, and stores the two
+switches as `ASUSWRT_MCP_ALLOW_WRITES` and `ASUSWRT_MCP_ALLOW_DANGEROUS` — the
+same variables the terminal hosts pass. It stringifies the checkboxes to
+`"true"` and `"false"`, which `gate_open` accepts.
 
-**It does not contain the server.** `asuswrt-mcp` needs Python 3.13, Claude
-Desktop ships no Python runtime, and the Python that a GUI app finds on macOS is
-the system 3.9. So the bundle carries a launcher that runs the copy `uv tool
-install` already placed in `~/.local/bin` — a self-contained script whose
-shebang points into its own virtualenv, which is why it works with no `PATH` at
-all. If the launcher cannot find it, the reason lands in
-`~/Library/Logs/Claude/mcp-server-asuswrt.log`.
+**It contains the server.** The manifest declares `server.type: "uv"`
+([MCPB manifest 0.4](https://github.com/modelcontextprotocol/mcpb/blob/main/MANIFEST.md#uv-runtime-v04)),
+so the archive ships `pyproject.toml`, `uv.lock` and `src/`, and the host's uv
+resolves Python 3.13 and the dependencies on first launch. Nothing is vendored
+and nothing is compiled — the spec forbids `server/lib` and `server/venv` in a
+uv bundle. Claude Desktop runs `uv sync` first, then the manifest's command:
 
-Rebuild it after editing the manifest — the build refuses to run if its version
-has drifted from `pyproject.toml`:
+```
+uv run --directory ${__dirname} --locked --no-dev --extra mcp asuswrt-mcp
+```
+
+Until v0.9.0 the bundle carried no server at all, only a shell launcher that
+located a separately `uv tool install`-ed `asuswrt-mcp`. That existed because
+Claude Desktop ships no Python runtime and refused to install a Python bundle
+without a system Python; the uv runtime is the supported fix for exactly that
+([mcpb#84](https://github.com/modelcontextprotocol/mcpb/issues/84)). The last
+launcher-based bundle is kept at
+`extension/legacy/asuswrt-0.8.0-legacy.mcpb` for hosts too old to read a 0.4
+manifest.
+
+Two things to know when working on it:
+
+- `compatibility.claude_desktop` is `>=1.40609.0`, which is the oldest build
+  the bundle has actually been installed and used on, not a number from a
+  changelog. Anthropic does not publish which Desktop release started
+  understanding `server.type: "uv"`, so the floor is deliberately conservative:
+  older builds may well work, and the way to lower it is to install the bundle
+  on one and confirm, never to guess. The previous manifest carried an
+  unverified `>=0.10.0` that meant nothing.
+- There is no `platform_overrides` block, deliberately. `uv run` is identical
+  on all three platforms, and some MCPB implementations replace the whole
+  environment when an override supplies `env` — which would drop the two write
+  gates.
+
+Rebuild it after editing the manifest. The build refuses to run unless
+`manifest.json`, `pyproject.toml` and `.claude-plugin/plugin.json` all declare
+the same version, and writes every entry with a fixed timestamp so an unchanged
+tree rebuilds byte-identically:
 
 ```bash
 python3 extension/build.py
 # or: npx @anthropic-ai/mcpb pack extension extension/asuswrt.mcpb
 ```
+
+One wart: Claude Desktop's initial `uv sync` installs the `dev` dependency
+group, so pytest lands in the extension's virtualenv even though `--no-dev` on
+the launch command keeps it off the server's own path. It is wasted disk, not a
+correctness problem.
 
 ### Claude Desktop, by hand
 

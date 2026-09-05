@@ -17,6 +17,10 @@ no scraping the web UI.
 You need [uv](https://docs.astral.sh/uv/), your router's **admin** password, and
 a machine on the same network as the router.
 
+uv is the only prerequisite. It fetches Python 3.13 and the dependencies itself
+on first run, so there is nothing to install separately — no system Python, no
+virtualenv to manage.
+
 Save the password first — everything needs it. Then register the MCP server
 with whichever agent you use.
 
@@ -36,25 +40,25 @@ family-member account cannot log in.
 
 ### Install the MCP server
 
-**Claude Code** — the plugin registers the server for you, read-only:
+**Claude Code** — the plugin carries the server; nothing else to install:
 
 ```bash
-uv tool install "asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-ai-tools"
 claude plugin marketplace add gittycat/asuswrt-ai-tools
 claude plugin install asuswrt@asuswrt
 ```
 
-Or register it yourself, which is also how you allow writes:
+The plugin is read-only until you say otherwise. Its two switches —
+**Allow changes to the router** and **Allow reboot and firmware upgrade** — are
+in the plugin's configuration; turn the first on to let the agent change
+settings, and leave the second off unless you mean it.
+
+Registering it by hand instead, which needs the `asuswrt-mcp` command on PATH:
 
 ```bash
 uv tool install "asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-ai-tools"
 claude mcp add --scope user asuswrt -- asuswrt-mcp
-```
 
-That server is read-only. To let the agent change settings too, insert
-`--env ASUSWRT_MCP_ALLOW_WRITES=1` before the name:
-
-```bash
+# or, allowing writes:
 claude mcp add --env ASUSWRT_MCP_ALLOW_WRITES=1 --scope user asuswrt -- asuswrt-mcp
 ```
 
@@ -68,20 +72,21 @@ codex mcp add asuswrt -- asuswrt-mcp
 codex mcp add asuswrt --env ASUSWRT_MCP_ALLOW_WRITES=1 -- asuswrt-mcp
 ```
 
-**Claude Desktop** (macOS and Windows — there is no Linux build) — install the
-server, then the one-click extension:
+**Claude Desktop** (macOS and Windows — Desktop itself has no Linux build) — one
+step, the extension carries the server:
 
 ```bash
-uv tool install "asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-ai-tools"
 curl -LO https://raw.githubusercontent.com/gittycat/asuswrt-ai-tools/main/extension/asuswrt.mcpb
 open asuswrt.mcpb     # macOS. On Windows: start asuswrt.mcpb
 ```
 
-Claude Desktop opens an install dialog with three settings: the path to
-`asuswrt-mcp`, already filled in, and two switches that are off —
+Claude Desktop opens an install dialog with two switches, both off —
 **Allow changes to the router** and **Allow reboot and firmware upgrade**. Turn
 the first on if you want the agent to be able to change settings, and leave the
 second off unless you mean it.
+
+The first launch after installing takes a while and looks like it is hanging:
+that is uv fetching Python and the dependencies. Later launches are immediate.
 
 If double-clicking does nothing, or you would rather download the file in a
 browser, use **Settings → Extensions → Advanced settings → Install Extension…**
@@ -91,11 +96,19 @@ and pick it. Editing
 
 ### Check it works
 
+Ask the agent *what model is my asus router?* — if it answers, everything is
+wired up.
+
+To check from a terminal instead, install the command as well and run it:
+
 ```bash
+uv tool install "asuswrt[mcp] @ git+https://github.com/gittycat/asuswrt-ai-tools"
 asuswrt system     # your model, firmware and MAC
 ```
 
-If that prints your router, the agent side works too.
+If that prints your router, the agent side works too. The command is optional —
+the Claude Code plugin and the Claude Desktop extension both carry their own
+copy of the server and do not need it.
 
 ---
 

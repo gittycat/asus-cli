@@ -1,3 +1,18 @@
-# Kept out of the bundle: the packer, and any bundle built earlier.
+# Kept out of the bundle: the packer, earlier bundles, and anything the uv
+# runtime must resolve itself. A uv bundle carries source and metadata only —
+# the spec forbids server/lib and server/venv outright.
 build.py
+legacy/
 *.mcpb
+
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+server/lib/
+server/venv/
+.DS_Store
