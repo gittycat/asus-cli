@@ -18,8 +18,10 @@ def run_uninstall(tmp_path: Path, state: dict, *args: str, project_mcp: dict | N
         (tmp_path / ".mcp.json").write_text(json.dumps(project_mcp))
 
     bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    (bin_dir / "python3").symlink_to(sys.executable)
+    bin_dir.mkdir(exist_ok=True)
+    python_link = bin_dir / "python3"
+    if not python_link.exists():
+        python_link.symlink_to(sys.executable)
     env = os.environ.copy()
     env.update(HOME=str(home), PATH=f"{bin_dir}:/usr/bin:/bin")
 
@@ -76,3 +78,28 @@ def test_uninstall_verification_accounts_for_retained_claude_dir(tmp_path, args,
     result = run_uninstall(tmp_path, {}, *args)
 
     assert expected in result.stdout
+
+
+def test_uninstall_removes_chatgpt_connector_state(tmp_path):
+    home = tmp_path / "home"
+    label = "io.github.gittycat.asuswrt-chatgpt-connector"
+    plist = home / "Library" / "LaunchAgents" / f"{label}.plist"
+    state_dir = (
+        home
+        / "Library"
+        / "Application Support"
+        / "asuswrt-chatgpt-connector"
+    )
+    plist.parent.mkdir(parents=True)
+    plist.write_text("plist")
+    state_dir.mkdir(parents=True)
+    (state_dir / "control-plane-api-key").write_text("secret")
+
+    preview = run_uninstall(tmp_path, {})
+    assert "stop the asuswrt-chatgpt-connector LaunchAgent" in preview.stdout
+    assert plist.exists()
+    assert state_dir.exists()
+
+    run_uninstall(tmp_path, {}, "--yes")
+    assert not plist.exists()
+    assert not state_dir.exists()

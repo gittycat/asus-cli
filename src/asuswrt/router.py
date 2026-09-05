@@ -124,7 +124,7 @@ def load_env() -> None:
     """
     for path in config_paths():
         if path.is_file():
-            load_dotenv(path)
+            load_dotenv(path, interpolate=False)
             break
 
 

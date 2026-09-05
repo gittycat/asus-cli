@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Remove every installed component of this project from a Mac: the CLI, the
-# MCP registrations in Claude Code and Codex, the Claude Code plugin and its
-# saved settings, the skill leftovers from before v0.8.0, and the Claude
-# Desktop extension along with its virtualenv and install record. Safe to run
-# when only some of them are present. Tool-owned workspace history is left
-# alone.
+# MCP registrations in Claude Code and Codex, the ChatGPT connector, the Claude
+# Code plugin and its saved settings, the skill leftovers from before v0.8.0,
+# and the Claude Desktop extension along with its virtualenv and install record.
+# Safe to run when only some of them are present. Tool-owned workspace history
+# is left alone.
 #
 # Not touched: ~/.cache/uv. Since v0.9.0 the plugin and the extension resolve
 # their dependencies through uv, which caches wheels there — shared with every
@@ -60,6 +60,29 @@ say "asuswrt cleanup"
 [ "$APPLY" -eq 1 ] || say "(dry run — pass --yes to actually remove)"
 say ""
 
+# ------------------------------------------------------ ChatGPT connector ---
+say "ChatGPT connector"
+CONNECTOR_LABEL="io.github.gittycat.asuswrt-chatgpt-connector"
+CONNECTOR_PLIST="$HOME/Library/LaunchAgents/$CONNECTOR_LABEL.plist"
+CONNECTOR_STATE="$HOME/Library/Application Support/asuswrt-chatgpt-connector"
+if [ -e "$CONNECTOR_PLIST" ] || [ -d "$CONNECTOR_STATE" ]; then
+  hit "stop the asuswrt-chatgpt-connector LaunchAgent"
+  if [ "$APPLY" -eq 1 ]; then
+    launchctl bootout "gui/$UID/$CONNECTOR_LABEL" >/dev/null 2>&1 || true
+    ran
+  fi
+fi
+if [ -e "$CONNECTOR_PLIST" ]; then
+  hit "rm ~/Library/LaunchAgents/$CONNECTOR_LABEL.plist"
+  do_rm "$CONNECTOR_PLIST"
+fi
+if [ -d "$CONNECTOR_STATE" ]; then
+  hit "rm -rf ~/Library/Application Support/asuswrt-chatgpt-connector"
+  do_rm "$CONNECTOR_STATE"
+fi
+say "  Remote OpenAI tunnel and ChatGPT app are left in place"
+say ""
+
 # ---------------------------------------------------------------- the CLI ---
 say "CLI and MCP binaries"
 if command -v uv >/dev/null 2>&1 && uv tool list 2>/dev/null | grep -q '^asuswrt'; then
@@ -67,7 +90,7 @@ if command -v uv >/dev/null 2>&1 && uv tool list 2>/dev/null | grep -q '^asuswrt
   do_cmd uv tool uninstall asuswrt
 fi
 # uv normally takes these with it; catch a half-removed install too.
-for f in asuswrt asuswrt-mcp asuswrt-probe; do
+for f in asuswrt asuswrt-mcp asuswrt-probe asuswrt-chatgpt-connector; do
   if [ -e "$HOME/.local/bin/$f" ] || [ -L "$HOME/.local/bin/$f" ]; then
     hit "rm ~/.local/bin/$f"
     do_rm "$HOME/.local/bin/$f"
@@ -178,7 +201,7 @@ fi
 
 # ------------------------------------------------------------------ Codex ---
 say ""
-say "Codex and ChatGPT"
+say "Codex"
 if grep -q '^\[mcp_servers\.asuswrt\]' "$HOME/.codex/config.toml" 2>/dev/null; then
   if command -v codex >/dev/null 2>&1; then
     hit "codex mcp remove asuswrt"
@@ -194,11 +217,6 @@ if grep -q '^\[mcp_servers\.asuswrt\]' "$HOME/.codex/config.toml" 2>/dev/null; t
     hit "[mcp_servers.asuswrt] in ~/.codex/config.toml — codex is not on PATH, delete the block by hand"
   fi
 fi
-# ChatGPT accepts only remote MCP servers over HTTPS — it cannot start a stdio
-# child process at all, so this project was never registered there and there is
-# nothing local to delete. If you reached it through a tunnel, remove that
-# connector under Settings -> Plugins (called Connectors before July 2026).
-say "  ChatGPT: nothing local — it only supports remote HTTPS servers, not stdio"
 
 # --------------------------------------------------------- Claude Desktop ---
 say ""

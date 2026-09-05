@@ -94,6 +94,17 @@ def test_config_defaults_fill_in_around_the_password(monkeypatch, tmp_path):
     )
 
 
+def test_config_treats_dollar_braces_in_password_as_literal(monkeypatch, tmp_path):
+    env = tmp_path / "literal.env"
+    env.write_text(
+        'ROUTER_HOST=192.168.50.1\nROUTER_PASS="literal${HOME}password"\n'
+    )
+    monkeypatch.setenv("ASUSWRT_ENV_FILE", str(env))
+    monkeypatch.delenv("ROUTER_PASS", raising=False)
+
+    assert load_config().password == "literal${HOME}password"
+
+
 def test_router_host_wins_over_the_detected_gateway(monkeypatch, tmp_path):
     monkeypatch.setenv("ASUSWRT_ENV_FILE", str(_empty_env(tmp_path)))
     monkeypatch.setenv("ROUTER_PASS", "secret")

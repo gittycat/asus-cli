@@ -2,10 +2,10 @@
 
 Allows you to control a local Asus WRT home router via AI prompts instead of using the Asus web admin interface or ios app.
 
-Works with any agent that can start a local MCP server over stdio — Claude
-Code, Codex, Claude Desktop and Gemini CLI among them. Not ChatGPT: it accepts
-only remote servers reachable over HTTPS, and this one deliberately has no
-network listener.
+Works directly with agents that can start a local MCP server over stdio —
+Claude Code, Codex, Claude Desktop and Gemini CLI among them. ChatGPT connects
+through the optional `asuswrt-chatgpt-connector`, which keeps the stdio server
+local and opens an outbound OpenAI Secure MCP Tunnel.
 
 It uses the included small python program, `asuswrt` that speaks the router's
 unpublished HTTP API — the same one the official ASUS mobile app uses. No SSH,
@@ -41,6 +41,11 @@ gateway, detected on every run. Use the router's **admin** account; a limited
 family-member account cannot log in.
 
 ### Install the MCP server
+
+**ChatGPT** — download the macOS 27 ARM archive from the matching GitHub
+Release, then follow the [connector installation guide](docs/chatgpt-connector.md).
+The connector is distributed from GitHub while it is under active development;
+it is not published in the MCP Registry.
 
 **Claude Code** — the plugin carries the server; nothing else to install:
 
